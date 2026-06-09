@@ -373,16 +373,17 @@ with st.sidebar:
 # ─────────────────────────────────────────────
 # CARGAR DATAFRAMES REALES SI EXISTEN
 # ─────────────────────────────────────────────
-COLS_CARTERA  = ["valor_saldo_deuda","zona","estado","segmento_nombre","edad_consultora",
-                  "division","red","direccion_de_residencia_estado","numero_clave"]
-COLS_PAGOS    = ["monto_pagado","valor_pago","importe","monto","pago",
-                  "fecha_pago","fecha","asesor","ejecutivo","agente",
+COLS_CARTERA  = ["codigo de cliente","aging_de_morosidad","valor_saldo_deuda",
+                  "zona","estado","segmento_nombre","edad_consultora",
+                  "division","red","direccion_de_residencia_estado","numero_clave",
+                  "L","Saldo"]
+COLS_PAGOS    = ["BU (Pago total)","codigo de cliente","monto_pagado","valor_pago",
+                  "importe","monto","pago","fecha_pago","fecha","asesor","ejecutivo",
                   "zona","direccion_de_residencia_estado","estado","edad_consultora",
-                  "segmento_nombre"]
-COLS_GESTION  = ["resultado","resultado_gestion","disposicion","tipificacion",
-                  "hora_llamada","hora","canal","medio","channel","tipo_contacto",
-                  "asesor","ejecutivo","agente","duracion_seg","duracion","tmo"]
-COLS_PROMESAS = ["monto_promesa","promesa_monto","monto","importe",
+                  "segmento_nombre","aging_de_morosidad"]
+COLS_GESTION  = ["codigo de cliente","medicion","K","hora_llamada","hora",
+                  "canal","medio","asesor","ejecutivo","duracion_seg","duracion","tmo"]
+COLS_PROMESAS = ["monto_promesa","promesa_monto","monto","importe","codigo de cliente",
                   "fecha_promesa","fecha","cumplida","estatus","status","resultado"]
 
 @st.cache_data(show_spinner="Cargando archivos, espera...")
@@ -419,7 +420,7 @@ df_prom_real  = cargar_si_existe(f_promesas, COLS_PROMESAS)
 
 # ── Calcular métricas reales si hay datos ────
 if df_pago_real is not None:
-    c_monto = col(df_pago_real, "monto_pagado","valor_pago","importe","monto","pago")
+    c_monto = col(df_pago_real, "BU (Pago total)","monto_pagado","valor_pago","importe","monto","pago")
     c_fecha = col(df_pago_real, "fecha_pago","fecha","date","fecha_operacion")
     c_asesor= col(df_pago_real, "asesor","ejecutivo","agente","nombre_asesor")
     if c_monto:
@@ -436,6 +437,15 @@ if df_pago_real is not None:
         df_cierre["Meta Acum"]       = df_cierre["Meta"].cumsum()
         df_cierre["Recuperado Acum"] = df_cierre["Recuperado"].cumsum()
 
+if df_cart_real is not None:
+    c_meta   = col(df_cart_real, "L","Saldo","valor_saldo_deuda")
+    c_codigo = col(df_cart_real, "codigo de cliente","codigo_de_cliente","numero_clave")
+    c_aging  = col(df_cart_real, "aging_de_morosidad","aging","temporalidad")
+    if c_meta and c_codigo:
+        df_cart_real[c_meta] = pd.to_numeric(df_cart_real[c_meta], errors="coerce").fillna(0)
+        df_meta_unico = df_cart_real.drop_duplicates(subset=[c_codigo])
+        META_TOTAL = df_meta_unico[c_meta].sum()
+
 if df_prom_real is not None:
     c_mp  = col(df_prom_real, "monto_promesa","promesa_monto","monto","importe")
     c_cum = col(df_prom_real, "cumplida","estatus","status","resultado")
@@ -448,20 +458,34 @@ if df_prom_real is not None:
         PIPELINE_PROM = df_prom_real[c_mp].sum()
 
 if df_gest_real is not None:
-    c_res  = col(df_gest_real, "resultado","resultado_gestion","disposicion","tipificacion")
+    c_res  = col(df_gest_real, "medicion","K","resultado","resultado_gestion","disposicion")
+    c_cod  = col(df_gest_real, "codigo de cliente","codigo_de_cliente","numero_clave")
     c_hora = col(df_gest_real, "hora_llamada","hora","hour")
     c_dur  = col(df_gest_real, "duracion_seg","duracion","duration","tmo")
     c_canal= col(df_gest_real, "canal","medio","channel","tipo_contacto")
     c_as   = col(df_gest_real, "asesor","ejecutivo","agente")
-    TOTAL_INT = len(df_gest_real)
-    if c_res:
-        res_lower = df_gest_real[c_res].astype(str).str.lower()
-        TITULAR = int(res_lower.isin(["contacto titular","titular","contactado","promesa","pdc"]).sum())
-        BUZON   = int(res_lower.str.contains("buz|voicemail|vm",na=False).sum())
-        NO_CONT = int(res_lower.str.contains("no contest|no answer|sin respuesta",na=False).sum())
-        NUM_INV = int(res_lower.str.contains("inv[aá]lido|wrong|error",na=False).sum())
-        COLGADO = int(res_lower.str.contains("colg|hang|abandon",na=False).sum())
-        CR      = TITULAR / max(TOTAL_INT, 1)
+
+    CONTACTADOS = ["contacto directo","contacto indirecto"]
+    NO_CONTACTADO = ["no contactado"]
+
+    if c_res and c_cod:
+        res_lower = df_gest_real[c_res].astype(str).str.strip().str.lower()
+        # Contact Rate por código único
+        df_gest_real["_contactado"] = res_lower.isin([c.lower() for c in CONTACTADOS])
+        df_cod_unico = df_gest_real.groupby(c_cod)["_contactado"].max().reset_index()
+        TITULAR   = int(df_cod_unico["_contactado"].sum())
+        TOTAL_INT = len(df_cod_unico)
+        NO_CONT   = TOTAL_INT - TITULAR
+        BUZON     = 0
+        NUM_INV   = 0
+        COLGADO   = 0
+        CR        = TITULAR / max(TOTAL_INT, 1)
+    elif c_res:
+        res_lower = df_gest_real[c_res].astype(str).str.strip().str.lower()
+        TITULAR   = int(res_lower.isin([c.lower() for c in CONTACTADOS]).sum())
+        TOTAL_INT = len(df_gest_real)
+        NO_CONT   = TOTAL_INT - TITULAR
+        CR        = TITULAR / max(TOTAL_INT, 1)
     if c_hora:
         try:
             df_gest_real["_hora"] = pd.to_datetime(df_gest_real[c_hora], errors="coerce").dt.hour
@@ -631,7 +655,7 @@ with tab1:
     st.markdown('<div class="sec">Cierre de Mes — Mayo 2025</div>', unsafe_allow_html=True)
 
     c1,c2,c3,c4,c5 = st.columns(5)
-    c1.metric("Meta mensual",         f"${META_TOTAL/1e6:.2f}M")
+    c1.metric("Asignación por temporalidad", f"${META_TOTAL/1e6:.2f}M")
     c2.metric("Recuperado",           f"${RECUPERADO_TOTAL/1e6:.2f}M",
               delta=f"{(RECUPERADO_TOTAL/META_TOTAL-1)*100:.1f}%")
     c3.metric("Cumplimiento",         f"{RECUPERADO_TOTAL/META_TOTAL*100:.1f}%")
