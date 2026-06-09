@@ -655,7 +655,7 @@ with tab1:
     st.markdown('<div class="sec">Cierre de Mes — Mayo 2025</div>', unsafe_allow_html=True)
 
     c1,c2,c3,c4,c5 = st.columns(5)
-    c1.metric("Asignación por temporalidad", f"${META_TOTAL/1e6:.2f}M")
+    c1.metric("Recuperación", f"${6_000_000/1e6:.2f}M")
     c2.metric("Recuperado",           f"${RECUPERADO_TOTAL/1e6:.2f}M",
               delta=f"{(RECUPERADO_TOTAL/META_TOTAL-1)*100:.1f}%")
     c3.metric("Cumplimiento",         f"{RECUPERADO_TOTAL/META_TOTAL*100:.1f}%")
