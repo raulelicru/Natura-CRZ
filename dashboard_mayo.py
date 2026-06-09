@@ -206,6 +206,35 @@ df_sector = pd.DataFrame({
 })
 df_sector["Cumplimiento %"] = (df_sector["Recuperado"] / df_sector["Meta"] * 100).round(1)
 
+# Calcular División real si hay datos
+if df_cart_real is not None and df_pago_real is not None:
+    c_div_rem  = col(df_cart_real, "BU (Division)","Division","division","BF")
+    c_cod_rem  = col(df_cart_real, "codigo de cliente","codigo_de_cliente")
+    c_meta_rem = col(df_cart_real, "L","Saldo","valor_saldo_deuda")
+    c_cod_pag  = col(df_pago_real, "codigo de cliente","codigo_de_cliente")
+    c_pago_bu  = col(df_pago_real, "BU (Pago total)","monto_pagado","valor_pago")
+
+    if c_div_rem and c_cod_rem and c_meta_rem and c_cod_pag and c_pago_bu:
+        # Asignación por división (único por código de cliente)
+        df_rem_unico = df_cart_real.drop_duplicates(subset=[c_cod_rem])
+        df_rem_unico[c_meta_rem] = pd.to_numeric(df_rem_unico[c_meta_rem], errors="coerce").fillna(0)
+        asig_div = df_rem_unico.groupby(c_div_rem)[c_meta_rem].sum().reset_index()
+        asig_div.columns = ["Division","Meta"]
+
+        # Pagos por división — cruzar código de cliente con remesa
+        df_pago_real[c_pago_bu] = pd.to_numeric(df_pago_real[c_pago_bu], errors="coerce").fillna(0)
+        df_cruce = df_pago_real[[c_cod_pag, c_pago_bu]].merge(
+            df_rem_unico[[c_cod_rem, c_div_rem]],
+            left_on=c_cod_pag, right_on=c_cod_rem, how="left"
+        )
+        pago_div = df_cruce.groupby(c_div_rem)[c_pago_bu].sum().reset_index()
+        pago_div.columns = ["Division","Recuperado"]
+
+        df_sector = asig_div.merge(pago_div, on="Division", how="left")
+        df_sector["Recuperado"] = df_sector["Recuperado"].fillna(0)
+        df_sector["Cumplimiento %"] = (df_sector["Recuperado"] / df_sector["Meta"].clip(1) * 100).round(1)
+        df_sector = df_sector.rename(columns={"Division":"Sector"})
+
 np.random.seed(42)
 df_gv = pd.DataFrame({
     "GV":         GVS,
@@ -376,7 +405,7 @@ with st.sidebar:
 COLS_CARTERA  = ["codigo de cliente","aging_de_morosidad","valor_saldo_deuda",
                   "zona","estado","segmento_nombre","edad_consultora",
                   "division","red","direccion_de_residencia_estado","numero_clave",
-                  "L","Saldo"]
+                  "L","Saldo","BU (Division)","BF","Division"]
 COLS_PAGOS    = ["BU (Pago total)","codigo de cliente","monto_pagado","valor_pago",
                   "importe","monto","pago","fecha_pago","fecha","asesor","ejecutivo",
                   "zona","direccion_de_residencia_estado","estado","edad_consultora",
