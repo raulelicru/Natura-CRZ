@@ -87,12 +87,17 @@ PLOTLY_LAYOUT = dict(
     plot_bgcolor="rgba(0,0,0,0)",
     font=dict(color=TEXT, family="Inter, sans-serif"),
     margin=dict(l=10, r=10, t=30, b=10),
-    xaxis=dict(gridcolor="#1e293b", linecolor="#334155"),
-    yaxis=dict(gridcolor="#334155", linecolor="#334155"),
 )
 
 def apply_layout(fig, **kwargs):
-    fig.update_layout(**PLOTLY_LAYOUT, **kwargs)
+    layout = {**PLOTLY_LAYOUT, **kwargs}
+    # merge xaxis/yaxis dicts en lugar de sobreescribir
+    for ax in ("xaxis", "yaxis", "xaxis2", "yaxis2"):
+        base = dict(gridcolor="#334155", linecolor="#334155")
+        if ax in kwargs:
+            base.update(kwargs[ax])
+            layout[ax] = base
+    fig.update_layout(**layout)
     return fig
 
 # ─────────────────────────────────────────────
@@ -245,6 +250,46 @@ df_acciones = pd.DataFrame([
     ("Jue 12 Jun","Gerencia","Validar incentivo para GVs rezagados"),
     ("Vie 13 Jun","Operaciones","Ajuste de marcaciones franja 12-15h +25%"),
 ], columns=["Plazo","Área","Acción"])
+
+# ─────────────────────────────────────────────
+# SIDEBAR — CARGA DE ARCHIVOS REALES
+# ─────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("## 📂 Cargar datos reales")
+    st.caption("Sube tus archivos de Mayo para reemplazar los datos de prueba.")
+
+    st.markdown("**Cartera / Remesa**")
+    f_cartera = st.file_uploader("CSV de cartera asignada", type=["csv","xlsx"], key="cartera")
+    st.markdown("**Pagos / Recuperación**")
+    f_pagos = st.file_uploader("CSV de pagos recibidos", type=["csv","xlsx"], key="pagos")
+    st.markdown("**Gestión de llamadas**")
+    f_gestion = st.file_uploader("CSV de gestión / marcaciones", type=["csv","xlsx"], key="gestion")
+    st.markdown("**Promesas de pago**")
+    f_promesas = st.file_uploader("CSV de promesas", type=["csv","xlsx"], key="promesas")
+
+    if any([f_cartera, f_pagos, f_gestion, f_promesas]):
+        st.success("✅ Archivos cargados — los indicadores se actualizarán cuando conectemos las columnas.")
+        st.info("Columnas detectadas:")
+        for nombre, f in [("Cartera",f_cartera),("Pagos",f_pagos),
+                          ("Gestión",f_gestion),("Promesas",f_promesas)]:
+            if f:
+                try:
+                    df_tmp = pd.read_csv(f, nrows=0) if f.name.endswith(".csv") else pd.read_excel(f, nrows=0)
+                    st.markdown(f"**{nombre}:** {', '.join(df_tmp.columns[:6].tolist())}{'...' if len(df_tmp.columns)>6 else ''}")
+                except Exception:
+                    st.markdown(f"**{nombre}:** cargado ✓")
+    else:
+        st.warning("Usando datos de prueba (sintéticos)")
+        st.markdown("---")
+        st.markdown("**Formato esperado:**")
+        st.markdown("""
+- `numero_clave`, `valor_saldo_deuda`
+- `estado`, `division`, `zona`
+- `edad_consultora`, `segmento_nombre`
+- `fecha_pago`, `monto_pagado`
+- `asesor`, `duracion_llamada`
+- `resultado_gestion`, `promesa_monto`
+        """)
 
 # ─────────────────────────────────────────────
 # HEADER
