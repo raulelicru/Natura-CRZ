@@ -420,6 +420,10 @@ df_gest_real  = cargar_si_existe(f_gestion,  COLS_GESTION)
 df_prom_real  = cargar_si_existe(f_promesas, COLS_PROMESAS)
 
 # ── Calcular División real si hay datos ──────
+if df_cart_real is not None:
+    st.sidebar.write("**Cols Remesa:**", list(df_cart_real.columns))
+if df_pago_real is not None:
+    st.sidebar.write("**Cols Pagos:**", list(df_pago_real.columns))
 if df_cart_real is not None and df_pago_real is not None:
     c_div_rem  = col(df_cart_real, "BU (Division)","Division","division","BF")
     c_cod_rem  = col(df_cart_real, "codigo de cliente","codigo_de_cliente")
