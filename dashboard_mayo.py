@@ -151,8 +151,8 @@ ASESORES  = [f"Asesor {chr(65+i)}" for i in range(10)]
 HORAS     = list(range(8, 21))
 
 # ── Cierre de mes ────────────────────────────
-META_TOTAL       = 4_850_000
-RECUPERADO_TOTAL = 3_892_500
+META_TOTAL       = 6_000_000
+RECUPERADO_TOTAL = 4_954_931.88
 PROMESAS_GEN     = 1_240
 PROMESAS_CUMP    = 748
 PROMESAS_CAIDAS  = PROMESAS_GEN - PROMESAS_CUMP
@@ -655,7 +655,7 @@ with tab1:
     st.markdown('<div class="sec">Cierre de Mes — Mayo 2025</div>', unsafe_allow_html=True)
 
     c1,c2,c3,c4,c5 = st.columns(5)
-    c1.metric("Recuperación", f"${6_000_000/1e6:.2f}M")
+    c1.metric("Asignación por temporalidad", f"${META_TOTAL/1e6:.2f}M")
     c2.metric("Recuperado",           f"${RECUPERADO_TOTAL/1e6:.2f}M",
               delta=f"{(RECUPERADO_TOTAL/META_TOTAL-1)*100:.1f}%")
     c3.metric("Cumplimiento",         f"{RECUPERADO_TOTAL/META_TOTAL*100:.1f}%")
