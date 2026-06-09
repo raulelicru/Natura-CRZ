@@ -24,6 +24,12 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# ─────────────────────────────────────────────
+# PANTALLA DE INICIO
+# ─────────────────────────────────────────────
+if "archivos_listos" not in st.session_state:
+    st.session_state.archivos_listos = False
+
 DARK  = "#ffffff"
 CARD  = "#f1f5f9"
 BLUE  = "#2563eb"
@@ -270,19 +276,70 @@ df_acciones = pd.DataFrame([
 ], columns=["Plazo","Área","Acción"])
 
 # ─────────────────────────────────────────────
-# SIDEBAR — CARGA DE ARCHIVOS REALES
+# PANTALLA DE INICIO — CARGA DE ARCHIVOS
 # ─────────────────────────────────────────────
+if not st.session_state.archivos_listos:
+    st.markdown("""
+    <div style="text-align:center; padding: 40px 0 20px 0;">
+        <div style="font-size:4rem;">📊</div>
+        <h1 style="font-size:2.2rem; font-weight:800; color:#0f172a; margin:10px 0 4px 0;">
+            Dashboard de Cobranza
+        </h1>
+        <h2 style="font-size:1.4rem; font-weight:400; color:#64748b; margin:0 0 8px 0;">
+            Mayo 2025 — NAtura
+        </h2>
+        <p style="color:#94a3b8; font-size:0.95rem;">
+            Sube tus archivos para generar los indicadores con datos reales.<br>
+            También puedes continuar con datos de demostración.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("#### 📋 Cartera / Remesa")
+        f_cartera = st.file_uploader("Archivo de cartera asignada", type=["csv","xlsx","xls"], key="cartera", label_visibility="collapsed")
+        st.caption("Columnas: `valor_saldo_deuda`, `zona`, `estado`, `segmento_nombre`, `edad_consultora`")
+
+        st.markdown("#### 💰 Pagos / Recuperación")
+        f_pagos = st.file_uploader("Archivo de pagos", type=["csv","xlsx","xls"], key="pagos", label_visibility="collapsed")
+        st.caption("Columnas: `monto_pagado`, `fecha_pago`, `asesor`")
+
+    with col2:
+        st.markdown("#### 📞 Gestión de llamadas")
+        f_gestion = st.file_uploader("Archivo de gestión", type=["csv","xlsx","xls"], key="gestion", label_visibility="collapsed")
+        st.caption("Columnas: `resultado`, `hora_llamada`, `canal`, `asesor`, `duracion_seg`")
+
+        st.markdown("#### 🤝 Promesas de pago")
+        f_promesas = st.file_uploader("Archivo de promesas", type=["csv","xlsx","xls"], key="promesas", label_visibility="collapsed")
+        st.caption("Columnas: `monto_promesa`, `fecha_promesa`, `cumplida`")
+
+    st.markdown("---")
+    col_btn1, col_btn2, col_btn3 = st.columns([2, 1, 2])
+    with col_btn2:
+        archivos_subidos = any([f_cartera, f_pagos, f_gestion, f_promesas])
+        btn_label = "▶ Ver Dashboard con mis datos" if archivos_subidos else "▶ Ver Dashboard de demostración"
+        if st.button(btn_label, type="primary", use_container_width=True):
+            st.session_state.archivos_listos = True
+            st.session_state.f_cartera  = f_cartera
+            st.session_state.f_pagos    = f_pagos
+            st.session_state.f_gestion  = f_gestion
+            st.session_state.f_promesas = f_promesas
+            st.rerun()
+    st.stop()
+
+# ─────────────────────────────────────────────
+# RECUPERAR ARCHIVOS DE SESSION STATE
+# ─────────────────────────────────────────────
+f_cartera  = st.session_state.get("f_cartera")
+f_pagos    = st.session_state.get("f_pagos")
+f_gestion  = st.session_state.get("f_gestion")
+f_promesas = st.session_state.get("f_promesas")
+
 with st.sidebar:
-    st.markdown("## 📂 Cargar datos reales")
-    st.caption("Sube tus archivos de Mayo. El dashboard se actualiza automáticamente.")
-
-    f_cartera  = st.file_uploader("📋 Cartera / Remesa",        type=["csv","xlsx","xls"], key="cartera")
-    f_pagos    = st.file_uploader("💰 Pagos / Recuperación",    type=["csv","xlsx","xls"], key="pagos")
-    f_gestion  = st.file_uploader("📞 Gestión de llamadas",     type=["csv","xlsx","xls"], key="gestion")
-    f_promesas = st.file_uploader("🤝 Promesas de pago",        type=["csv","xlsx","xls"], key="promesas")
-
     MODO_REAL = any([f_cartera, f_pagos, f_gestion, f_promesas])
-
     if MODO_REAL:
         st.success("✅ Datos reales activos")
         for nombre, f in [("Cartera",f_cartera),("Pagos",f_pagos),
@@ -290,32 +347,13 @@ with st.sidebar:
             if f:
                 df_tmp = leer_archivo(f)
                 if df_tmp is not None:
-                    st.markdown(f"**{nombre}** — {len(df_tmp):,} filas, {len(df_tmp.columns)} cols")
-                    with st.expander(f"Columnas {nombre}"):
-                        st.write(list(df_tmp.columns))
+                    st.markdown(f"**{nombre}** — {len(df_tmp):,} filas")
     else:
-        st.warning("⚠️ Usando datos de prueba")
-        st.markdown("---")
-        st.markdown("**Columnas que reconoce el sistema:**")
-        st.markdown("""
-**Cartera/Remesa:**
-`valor_saldo_deuda`, `division`, `zona`, `red`,
-`edad_consultora`, `segmento_nombre`,
-`direccion_de_residencia_estado`
-
-**Pagos:**
-`monto_pagado` / `valor_pago` / `importe`,
-`fecha_pago`, `asesor` / `ejecutivo`
-
-**Gestión:**
-`resultado` / `resultado_gestion`,
-`hora_llamada`, `duracion_seg` / `duracion`,
-`canal` / `medio`, `asesor`
-
-**Promesas:**
-`monto_promesa` / `promesa_monto`,
-`fecha_promesa`, `cumplida` / `estatus`
-        """)
+        st.warning("⚠️ Modo demostración")
+    st.markdown("---")
+    if st.button("← Cambiar archivos"):
+        st.session_state.archivos_listos = False
+        st.rerun()
 
 # ─────────────────────────────────────────────
 # CARGAR DATAFRAMES REALES SI EXISTEN
