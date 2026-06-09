@@ -82,6 +82,7 @@ with st.sidebar:
                              help="Procesa los archivos cargados y actualiza el dashboard")
     if btn_ejecutar:
         st.session_state["ejecutado"] = True
+        st.rerun()
     if st.button("↺ Limpiar", use_container_width=True):
         st.session_state["ejecutado"] = False
         st.rerun()
