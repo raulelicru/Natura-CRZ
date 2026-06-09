@@ -385,11 +385,18 @@ COLS_GESTION  = ["resultado","resultado_gestion","disposicion","tipificacion",
 COLS_PROMESAS = ["monto_promesa","promesa_monto","monto","importe",
                   "fecha_promesa","fecha","cumplida","estatus","status","resultado"]
 
-with st.spinner("Cargando archivos..."):
-    df_cart_real  = leer_archivo(f_cartera,  COLS_CARTERA)  if f_cartera  else None
-    df_pago_real  = leer_archivo(f_pagos,    COLS_PAGOS)    if f_pagos    else None
-    df_gest_real  = leer_archivo(f_gestion,  COLS_GESTION)  if f_gestion  else None
-    df_prom_real  = leer_archivo(f_promesas, COLS_PROMESAS) if f_promesas else None
+@st.cache_data(show_spinner="Cargando archivos, espera...")
+def cargar_archivos(fc, fp, fg, fpr):
+    return (
+        leer_archivo(fc,  COLS_CARTERA)  if fc  else None,
+        leer_archivo(fp,  COLS_PAGOS)    if fp  else None,
+        leer_archivo(fg,  COLS_GESTION)  if fg  else None,
+        leer_archivo(fpr, COLS_PROMESAS) if fpr else None,
+    )
+
+df_cart_real, df_pago_real, df_gest_real, df_prom_real = cargar_archivos(
+    f_cartera, f_pagos, f_gestion, f_promesas
+)
 
 # ── Calcular métricas reales si hay datos ────
 if df_pago_real is not None:
