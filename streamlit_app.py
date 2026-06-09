@@ -68,6 +68,53 @@ def col(df,*ops):
         if o in df.columns: return o
     return None
 
+# ── SIDEBAR ──
+with st.sidebar:
+    st.markdown("## 📂 Cargar datos reales")
+    st.caption("Sube tus archivos de Mayo.")
+    f_cartera =st.file_uploader("📋 Cartera / Remesa",    type=["csv","xlsx","xls"],key="cartera")
+    f_pagos   =st.file_uploader("💰 Pagos / Recuperación",type=["csv","xlsx","xls"],key="pagos")
+    f_gestion =st.file_uploader("📞 Gestión de llamadas", type=["csv","xlsx","xls"],key="gestion")
+    f_promesas=st.file_uploader("🤝 Promesas de pago",    type=["csv","xlsx","xls"],key="promesas")
+    MODO_REAL=any([f_cartera,f_pagos,f_gestion,f_promesas])
+    st.markdown("---")
+    btn_ejecutar = st.button("▶ Ejecutar", type="primary", use_container_width=True,
+                             help="Procesa los archivos cargados y actualiza el dashboard")
+    if btn_ejecutar:
+        st.session_state["ejecutado"] = True
+    if st.button("↺ Limpiar", use_container_width=True):
+        st.session_state["ejecutado"] = False
+        st.rerun()
+    st.markdown("---")
+    if st.session_state.get("ejecutado"):
+        if MODO_REAL:
+            st.success("✅ Datos reales activos")
+        else:
+            st.info("ℹ️ Usando datos de prueba")
+    else:
+        if MODO_REAL:
+            st.warning("⬆️ Archivos listos — presiona **Ejecutar**")
+        else:
+            st.caption("Carga archivos o presiona Ejecutar para ver datos de prueba.")
+
+# ── PANTALLA DE ESPERA ──
+if not st.session_state.get("ejecutado"):
+    st.markdown("## 📊 Dashboard Ejecutivo — Cobranza Mayo 2025")
+    st.caption("NAtura | Reunión de seguimiento")
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='text-align:center;padding:60px 20px;background:{CARD};border-radius:16px;"
+        f"border:2px dashed {BORD};margin-top:20px'>"
+        f"<div style='font-size:3rem'>📂</div>"
+        f"<div style='font-size:1.4rem;font-weight:700;color:{TEXT};margin:12px 0'>Carga tus archivos y presiona Ejecutar</div>"
+        f"<div style='color:{MUTED};font-size:0.95rem'>O bien presiona <b>Ejecutar</b> directamente para ver el dashboard con datos de ejemplo.</div>"
+        f"<div style='margin-top:24px;color:{MUTED};font-size:0.85rem'>"
+        f"📋 Cartera &nbsp;|&nbsp; 💰 Pagos &nbsp;|&nbsp; 📞 Gestión &nbsp;|&nbsp; 🤝 Promesas</div>"
+        f"</div>",
+        unsafe_allow_html=True
+    )
+    st.stop()
+
 # ── DATOS SINTÉTICOS ──
 ESTADOS=["CDMX","Edo. de México","Jalisco","Nuevo León","Puebla",
          "Guanajuato","Veracruz","Michoacán","Chihuahua","Tamaulipas"]
@@ -190,7 +237,6 @@ df_acciones=pd.DataFrame([
 ],columns=["Plazo","Área","Acción"])
 
 # ── DATOS SINTÉTICOS NUEVOS INDICADORES ──
-# Temporalidad: recuperación por semana y quincena
 df_temp=pd.DataFrame({
     "Semana":["Sem 1 (1-7)","Sem 2 (8-14)","Sem 3 (15-21)","Sem 4 (22-31)"],
     "Meta":[META_TOTAL*0.22,META_TOTAL*0.26,META_TOTAL*0.26,META_TOTAL*0.26],
@@ -204,21 +250,18 @@ df_quincena=pd.DataFrame({
 })
 df_quincena["Cumplimiento %"]=(df_quincena["Recuperado"]/df_quincena["Meta"]*100).round(1)
 
-# Heatmap de contactos: hora x día de semana
 np.random.seed(77)
 heatmap_data=np.random.randint(40,200,(5,13))
-heatmap_data[0,:]*=1.1; heatmap_data[2,:]*=1.05  # lunes y miércoles un poco mayor
-heatmap_data[:,4:7]*=1.2   # franjas 12-14h mayor contacto
+heatmap_data[0,:]*=1.1; heatmap_data[2,:]*=1.05
+heatmap_data[:,4:7]*=1.2
 heatmap_data=heatmap_data.astype(int)
 
-# Contactos por hora por semana del mes
 df_hora_sem=pd.DataFrame(index=HORAS,columns=["Sem 1","Sem 2","Sem 3","Sem 4"])
 for sem,factor in zip(["Sem 1","Sem 2","Sem 3","Sem 4"],[0.85,1.0,1.1,0.95]):
     base=[120,310,520,680,740,810,860,780,690,620,480,310,210]
     df_hora_sem[sem]=[int(v*factor+np.random.randint(-20,20)) for v in base]
 df_hora_sem=df_hora_sem.reset_index().rename(columns={"index":"Hora"})
 
-# Edad consultora: dispersión individual
 np.random.seed(55)
 n_cons=300
 edades_cons=np.random.randint(18,68,n_cons)
@@ -229,17 +272,7 @@ montos_cons=np.where(edades_cons<30, np.random.uniform(200,1500,n_cons),
                                      np.random.uniform(150,1800,n_cons))))
 df_scatter_edad=pd.DataFrame({"Edad":edades_cons,"Monto Pagado":montos_cons.round(0),"Segmento":seg_cons})
 
-# ── SIDEBAR ──
-with st.sidebar:
-    st.markdown("## 📂 Cargar datos reales")
-    st.caption("Sube tus archivos de Mayo.")
-    f_cartera =st.file_uploader("📋 Cartera / Remesa",    type=["csv","xlsx","xls"],key="cartera")
-    f_pagos   =st.file_uploader("💰 Pagos / Recuperación",type=["csv","xlsx","xls"],key="pagos")
-    f_gestion =st.file_uploader("📞 Gestión de llamadas", type=["csv","xlsx","xls"],key="gestion")
-    f_promesas=st.file_uploader("🤝 Promesas de pago",    type=["csv","xlsx","xls"],key="promesas")
-    MODO_REAL=any([f_cartera,f_pagos,f_gestion,f_promesas])
-    st.success("✅ Datos reales activos") if MODO_REAL else st.warning("⚠️ Usando datos de prueba")
-
+# ── LECTURA DE ARCHIVOS REALES ──
 df_cart_real =leer_archivo(f_cartera)  if f_cartera  else None
 df_pago_real =leer_archivo(f_pagos)   if f_pagos    else None
 df_gest_real =leer_archivo(f_gestion) if f_gestion  else None
@@ -261,7 +294,6 @@ if df_pago_real is not None:
         df_cierre["Meta"]=META_TOTAL/max(len(df_cierre),1)
         df_cierre["Meta Acum"]=df_cierre["Meta"].cumsum()
         df_cierre["Recuperado Acum"]=df_cierre["Recuperado"].cumsum()
-        # temporalidad real
         df_p2=df_p[df_p[c_fecha].dt.month==5].copy()
         df_p2["_sem_mes"]=pd.cut(df_p2[c_fecha].dt.day,bins=[0,7,14,21,31],
                                   labels=["Sem 1 (1-7)","Sem 2 (8-14)","Sem 3 (15-21)","Sem 4 (22-31)"])
@@ -302,7 +334,6 @@ if df_gest_real is not None:
             df_gest_real["_dia_sem"]=df_gest_real["_fecha"].dt.day_name()
             df_gest_real["_sem_mes"]=pd.cut(df_gest_real["_fecha"].dt.day,bins=[0,7,14,21,31],
                                             labels=["Sem 1","Sem 2","Sem 3","Sem 4"])
-            # heatmap real
             dias_map={"Monday":"Lunes","Tuesday":"Martes","Wednesday":"Miércoles",
                       "Thursday":"Jueves","Friday":"Viernes"}
             df_gest_real["_dia_esp"]=df_gest_real["_dia_sem"].map(dias_map)
@@ -311,7 +342,6 @@ if df_gest_real is not None:
             df_hw2=df_hw[is_tit].groupby(["_dia_esp","_hora"]).size().reset_index(name="Contactos")
             pivot=df_hw2.pivot(index="_dia_esp",columns="_hora",values="Contactos").fillna(0)
             heatmap_data=pivot.reindex(DIAS_SEM).values.astype(int)
-            # hora por semana real
             df_hs=df_gest_real.dropna(subset=["_hora","_sem_mes"])
             is_tit2=df_hs[c_res].astype(str).str.lower().isin(["contacto titular","titular","contactado","promesa","pdc"])
             df_hsw=df_hs[is_tit2].groupby(["_sem_mes","_hora"],observed=True).size().reset_index(name="Contactos")
@@ -528,7 +558,6 @@ with tab3:
         st.dataframe(df_segmento.style.format({"Recuperado":"${:,.0f}","Cumplimiento %":"{:.0f}%"}),
                      use_container_width=True,hide_index=True)
 
-    # ── SUB-TAB 5: TEMPORALIDAD ──
     with sub5:
         st.markdown("**Recuperación por Semana del Mes**")
         cl,cr=st.columns(2)
@@ -574,7 +603,6 @@ with tab3:
         st.info(f"**Mejor semana:** {sem_mejor} — **Semana con menor recuperación:** {sem_peor}. "
                 f"La última semana suele caer por cierre de mes; enfocar marcaciones los días 28-31.")
 
-    # ── SUB-TAB 6: HORAS POR SEMANA ──
     with sub6:
         st.markdown("**Heatmap de Contactos Titular — Hora × Día de Semana**")
         fig_heat=go.Figure(go.Heatmap(
@@ -590,7 +618,6 @@ with tab3:
         fig_heat.update_xaxes(side="bottom")
         st.plotly_chart(fig_heat,use_container_width=True)
         st.caption("Las celdas más oscuras indican mayor volumen de contactos titulares. Concentra marcaciones en esas franjas.")
-
         st.markdown("---")
         st.markdown("**Contactos por Hora según Semana del Mes**")
         fig_hs=go.Figure()
@@ -608,7 +635,6 @@ with tab3:
         st.plotly_chart(fig_hs,use_container_width=True)
         st.info("**Semana 3** tiene mayor contactabilidad en casi todas las franjas. La franja 12:00–15:00 es consistentemente alta en todas las semanas.")
 
-    # ── SUB-TAB 7: EDAD CONSULTORA ──
     with sub7:
         st.markdown("**Dispersión: Edad vs Monto Pagado por Consultora**")
         seg_colors={"Diamante":"#7c3aed","Oro":"#d97706","Plata":"#64748b",
@@ -624,7 +650,6 @@ with tab3:
         apply_layout(fig_sc,height=380,yaxis=dict(tickprefix="$",tickformat=",.0f"),
                      legend=dict(orientation="h",y=1.08))
         st.plotly_chart(fig_sc,use_container_width=True)
-
         st.markdown("---")
         st.markdown("**Resumen por rango de edad**")
         cl,cr=st.columns(2)
