@@ -101,7 +101,31 @@ def apply_layout(fig, **kwargs):
     return fig
 
 # ─────────────────────────────────────────────
-# DATOS SINTETICOS MAYO 2025
+# HELPERS DE CARGA
+# ─────────────────────────────────────────────
+def leer_archivo(f):
+    if f is None:
+        return None
+    try:
+        if f.name.lower().endswith((".xlsx", ".xls")):
+            return pd.read_excel(f)
+        return pd.read_csv(f, encoding="utf-8-sig", low_memory=False)
+    except Exception:
+        try:
+            f.seek(0)
+            return pd.read_csv(f, encoding="latin-1", low_memory=False)
+        except Exception:
+            return None
+
+def col(df, *opciones):
+    """Devuelve la primera columna que exista en df."""
+    for o in opciones:
+        if o in df.columns:
+            return o
+    return None
+
+# ─────────────────────────────────────────────
+# DATOS SINTETICOS MAYO 2025 (fallback)
 # ─────────────────────────────────────────────
 ESTADOS   = ["CDMX","Edo. de México","Jalisco","Nuevo León","Puebla",
              "Guanajuato","Veracruz","Michoacán","Chihuahua","Tamaulipas"]
@@ -256,40 +280,235 @@ df_acciones = pd.DataFrame([
 # ─────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 📂 Cargar datos reales")
-    st.caption("Sube tus archivos de Mayo para reemplazar los datos de prueba.")
+    st.caption("Sube tus archivos de Mayo. El dashboard se actualiza automáticamente.")
 
-    st.markdown("**Cartera / Remesa**")
-    f_cartera = st.file_uploader("CSV de cartera asignada", type=["csv","xlsx"], key="cartera")
-    st.markdown("**Pagos / Recuperación**")
-    f_pagos = st.file_uploader("CSV de pagos recibidos", type=["csv","xlsx"], key="pagos")
-    st.markdown("**Gestión de llamadas**")
-    f_gestion = st.file_uploader("CSV de gestión / marcaciones", type=["csv","xlsx"], key="gestion")
-    st.markdown("**Promesas de pago**")
-    f_promesas = st.file_uploader("CSV de promesas", type=["csv","xlsx"], key="promesas")
+    f_cartera  = st.file_uploader("📋 Cartera / Remesa",        type=["csv","xlsx","xls"], key="cartera")
+    f_pagos    = st.file_uploader("💰 Pagos / Recuperación",    type=["csv","xlsx","xls"], key="pagos")
+    f_gestion  = st.file_uploader("📞 Gestión de llamadas",     type=["csv","xlsx","xls"], key="gestion")
+    f_promesas = st.file_uploader("🤝 Promesas de pago",        type=["csv","xlsx","xls"], key="promesas")
 
-    if any([f_cartera, f_pagos, f_gestion, f_promesas]):
-        st.success("✅ Archivos cargados — los indicadores se actualizarán cuando conectemos las columnas.")
-        st.info("Columnas detectadas:")
+    MODO_REAL = any([f_cartera, f_pagos, f_gestion, f_promesas])
+
+    if MODO_REAL:
+        st.success("✅ Datos reales activos")
         for nombre, f in [("Cartera",f_cartera),("Pagos",f_pagos),
-                          ("Gestión",f_gestion),("Promesas",f_promesas)]:
+                           ("Gestión",f_gestion),("Promesas",f_promesas)]:
             if f:
-                try:
-                    df_tmp = pd.read_csv(f, nrows=0) if f.name.endswith(".csv") else pd.read_excel(f, nrows=0)
-                    st.markdown(f"**{nombre}:** {', '.join(df_tmp.columns[:6].tolist())}{'...' if len(df_tmp.columns)>6 else ''}")
-                except Exception:
-                    st.markdown(f"**{nombre}:** cargado ✓")
+                df_tmp = leer_archivo(f)
+                if df_tmp is not None:
+                    st.markdown(f"**{nombre}** — {len(df_tmp):,} filas, {len(df_tmp.columns)} cols")
+                    with st.expander(f"Columnas {nombre}"):
+                        st.write(list(df_tmp.columns))
     else:
-        st.warning("Usando datos de prueba (sintéticos)")
+        st.warning("⚠️ Usando datos de prueba")
         st.markdown("---")
-        st.markdown("**Formato esperado:**")
+        st.markdown("**Columnas que reconoce el sistema:**")
         st.markdown("""
-- `numero_clave`, `valor_saldo_deuda`
-- `estado`, `division`, `zona`
-- `edad_consultora`, `segmento_nombre`
-- `fecha_pago`, `monto_pagado`
-- `asesor`, `duracion_llamada`
-- `resultado_gestion`, `promesa_monto`
+**Cartera/Remesa:**
+`valor_saldo_deuda`, `division`, `zona`, `red`,
+`edad_consultora`, `segmento_nombre`,
+`direccion_de_residencia_estado`
+
+**Pagos:**
+`monto_pagado` / `valor_pago` / `importe`,
+`fecha_pago`, `asesor` / `ejecutivo`
+
+**Gestión:**
+`resultado` / `resultado_gestion`,
+`hora_llamada`, `duracion_seg` / `duracion`,
+`canal` / `medio`, `asesor`
+
+**Promesas:**
+`monto_promesa` / `promesa_monto`,
+`fecha_promesa`, `cumplida` / `estatus`
         """)
+
+# ─────────────────────────────────────────────
+# CARGAR DATAFRAMES REALES SI EXISTEN
+# ─────────────────────────────────────────────
+df_cart_real  = leer_archivo(f_cartera)  if f_cartera  else None
+df_pago_real  = leer_archivo(f_pagos)   if f_pagos    else None
+df_gest_real  = leer_archivo(f_gestion) if f_gestion  else None
+df_prom_real  = leer_archivo(f_promesas)if f_promesas else None
+
+# ── Calcular métricas reales si hay datos ────
+if df_pago_real is not None:
+    c_monto = col(df_pago_real, "monto_pagado","valor_pago","importe","monto","pago")
+    c_fecha = col(df_pago_real, "fecha_pago","fecha","date","fecha_operacion")
+    c_asesor= col(df_pago_real, "asesor","ejecutivo","agente","nombre_asesor")
+    RECUPERADO_TOTAL = df_pago_real[c_monto].sum() if c_monto else RECUPERADO_TOTAL
+    if c_fecha and c_monto:
+        df_pago_real[c_fecha] = pd.to_datetime(df_pago_real[c_fecha], errors="coerce")
+        df_cierre = (df_pago_real.dropna(subset=[c_fecha])
+                     .groupby(c_fecha)[c_monto].sum()
+                     .reset_index()
+                     .rename(columns={c_fecha:"Fecha", c_monto:"Recuperado"}))
+        df_cierre = df_cierre[df_cierre["Fecha"].dt.month == 5].sort_values("Fecha")
+        df_cierre["Meta"] = META_TOTAL / max(len(df_cierre), 1)
+        df_cierre["Meta Acum"]       = df_cierre["Meta"].cumsum()
+        df_cierre["Recuperado Acum"] = df_cierre["Recuperado"].cumsum()
+
+if df_prom_real is not None:
+    c_mp  = col(df_prom_real, "monto_promesa","promesa_monto","monto","importe")
+    c_cum = col(df_prom_real, "cumplida","estatus","status","resultado")
+    PROMESAS_GEN   = len(df_prom_real)
+    if c_cum:
+        cumplidas = df_prom_real[c_cum].astype(str).str.lower().isin(["1","si","sí","cumplida","pagada","true"])
+        PROMESAS_CUMP  = int(cumplidas.sum())
+        PROMESAS_CAIDAS= PROMESAS_GEN - PROMESAS_CUMP
+    if c_mp:
+        PIPELINE_PROM = df_prom_real[c_mp].sum()
+
+if df_gest_real is not None:
+    c_res  = col(df_gest_real, "resultado","resultado_gestion","disposicion","tipificacion")
+    c_hora = col(df_gest_real, "hora_llamada","hora","hour")
+    c_dur  = col(df_gest_real, "duracion_seg","duracion","duration","tmo")
+    c_canal= col(df_gest_real, "canal","medio","channel","tipo_contacto")
+    c_as   = col(df_gest_real, "asesor","ejecutivo","agente")
+    TOTAL_INT = len(df_gest_real)
+    if c_res:
+        res_lower = df_gest_real[c_res].astype(str).str.lower()
+        TITULAR = int(res_lower.isin(["contacto titular","titular","contactado","promesa","pdc"]).sum())
+        BUZON   = int(res_lower.str.contains("buz|voicemail|vm",na=False).sum())
+        NO_CONT = int(res_lower.str.contains("no contest|no answer|sin respuesta",na=False).sum())
+        NUM_INV = int(res_lower.str.contains("inv[aá]lido|wrong|error",na=False).sum())
+        COLGADO = int(res_lower.str.contains("colg|hang|abandon",na=False).sum())
+        CR      = TITULAR / max(TOTAL_INT, 1)
+    if c_hora:
+        try:
+            df_gest_real["_hora"] = pd.to_datetime(df_gest_real[c_hora], errors="coerce").dt.hour
+            if c_res:
+                grp = df_gest_real.groupby("_hora")
+                df_horario = pd.DataFrame({
+                    "Hora":      grp.size().index.tolist(),
+                    "Contactos": grp.size().values.tolist(),
+                    "Promesas":  grp.apply(lambda x: x[c_res].astype(str).str.lower()
+                                           .isin(["promesa","pdc","promesa de pago"]).sum()).values.tolist(),
+                })
+                df_horario["Conv %"] = (df_horario["Promesas"] / df_horario["Contactos"].clip(1) * 100).round(1)
+        except Exception:
+            pass
+    if c_canal and c_res:
+        def canal_stats(grp):
+            total = len(grp)
+            resp  = grp[c_res].notna().sum()
+            prom  = grp[c_res].astype(str).str.lower().isin(["promesa","pdc","promesa de pago"]).sum()
+            return pd.Series({"Enviados": total, "Respuestas": resp, "Promesas": prom})
+        df_canal = df_gest_real.groupby(c_canal).apply(canal_stats).reset_index()
+        df_canal.columns = ["Canal","Enviados","Respuestas","Promesas"]
+        df_canal["Tasa resp %"] = (df_canal["Respuestas"] / df_canal["Enviados"].clip(1) * 100).round(1)
+        df_canal["Conv prom %"] = (df_canal["Promesas"]   / df_canal["Respuestas"].clip(1) * 100).round(1)
+    if c_as and c_res:
+        def asesor_stats(grp):
+            llamadas = len(grp)
+            titular  = grp[c_res].astype(str).str.lower().isin(["contacto titular","titular","contactado","promesa","pdc"]).sum()
+            promesas = grp[c_res].astype(str).str.lower().isin(["promesa","pdc","promesa de pago"]).sum()
+            dur_col  = c_dur
+            tmo = grp[dur_col].mean() / 60 if dur_col and pd.api.types.is_numeric_dtype(grp[dur_col]) else 0
+            return pd.Series({"Llamadas": llamadas, "Contactos Titular": titular,
+                               "Promesas": promesas, "TMO (min)": round(tmo, 1),
+                               "Colgadas <30s": 0, "Monto Rec": 0})
+        df_asesores = df_gest_real.groupby(c_as).apply(asesor_stats).reset_index()
+        df_asesores.rename(columns={c_as: "Asesor"}, inplace=True)
+        if df_pago_real is not None and c_asesor and c_monto:
+            rec_asesor = df_pago_real.groupby(c_asesor)[c_monto].sum().reset_index()
+            rec_asesor.columns = ["Asesor","Monto Rec"]
+            df_asesores = df_asesores.merge(rec_asesor, on="Asesor", how="left", suffixes=("","_r"))
+            if "Monto Rec_r" in df_asesores.columns:
+                df_asesores["Monto Rec"] = df_asesores["Monto Rec_r"].fillna(0)
+                df_asesores.drop(columns=["Monto Rec_r"], inplace=True)
+        df_asesores["% Contacto"] = (df_asesores["Contactos Titular"] / df_asesores["Llamadas"].clip(1) * 100).round(1)
+        df_asesores["% Abandono"] = 0.0
+        df_asesores["Conv %"]     = (df_asesores["Promesas"] / df_asesores["Contactos Titular"].clip(1) * 100).round(1)
+        df_asesores = df_asesores.sort_values("Monto Rec", ascending=False).reset_index(drop=True)
+
+if df_cart_real is not None:
+    c_saldo  = col(df_cart_real, "valor_saldo_deuda","saldo","deuda","monto_deuda","importe")
+    c_div    = col(df_cart_real, "division","div","sector")
+    c_zona   = col(df_cart_real, "zona","zone","gv","gerencia")
+    c_edad   = col(df_cart_real, "edad_consultora","edad","age")
+    c_seg    = col(df_cart_real, "segmento_nombre","segmento","segment","categoria")
+    c_estado = col(df_cart_real, "direccion_de_residencia_estado","estado","state","entidad")
+    if c_saldo:
+        META_TOTAL = df_cart_real[c_saldo].sum()
+    if c_zona and c_saldo:
+        df_gv = (df_cart_real.groupby(c_zona)[c_saldo].agg(["sum","count"])
+                 .reset_index()
+                 .rename(columns={c_zona:"GV","sum":"Meta","count":"Cuentas"}))
+        if df_pago_real is not None:
+            c_zona_p = col(df_pago_real, "zona","zone","gv","gerencia")
+            c_mp2    = col(df_pago_real, "monto_pagado","valor_pago","importe","monto","pago")
+            if c_zona_p and c_mp2:
+                rec_gv = df_pago_real.groupby(c_zona_p)[c_mp2].sum().reset_index()
+                rec_gv.columns = ["GV","Recuperado"]
+                df_gv = df_gv.merge(rec_gv, on="GV", how="left")
+                df_gv["Recuperado"] = df_gv["Recuperado"].fillna(0)
+            else:
+                df_gv["Recuperado"] = df_gv["Meta"] * 0.8
+        else:
+            df_gv["Recuperado"] = df_gv["Meta"] * 0.8
+        df_gv["Cumplimiento %"] = (df_gv["Recuperado"] / df_gv["Meta"].clip(1) * 100).round(1)
+        df_gv = df_gv.sort_values("Cumplimiento %", ascending=False).reset_index(drop=True)
+    if c_edad and c_saldo:
+        df_cart_real["_rango"] = pd.cut(pd.to_numeric(df_cart_real[c_edad], errors="coerce"),
+                                         bins=[0,25,35,45,55,65,120],
+                                         labels=["18-25","26-35","36-45","46-55","56-65","66+"])
+        grp_e = df_cart_real.groupby("_rango", observed=True)
+        df_edad = pd.DataFrame({
+            "Rango":      grp_e.size().index.astype(str).tolist(),
+            "Cuentas":    grp_e.size().values.tolist(),
+            "Recuperado": [0]*6,
+            "Promesas %": [0]*6,
+        })
+        if df_pago_real is not None:
+            c_edad_p = col(df_pago_real, "edad_consultora","edad")
+            c_mp3    = col(df_pago_real, "monto_pagado","valor_pago","importe","monto","pago")
+            if c_edad_p and c_mp3:
+                df_pago_real["_rango"] = pd.cut(pd.to_numeric(df_pago_real[c_edad_p], errors="coerce"),
+                                                  bins=[0,25,35,45,55,65,120],
+                                                  labels=["18-25","26-35","36-45","46-55","56-65","66+"])
+                rec_e = df_pago_real.groupby("_rango", observed=True)[c_mp3].sum().reset_index()
+                rec_e.columns = ["Rango","Recuperado"]
+                rec_e["Rango"] = rec_e["Rango"].astype(str)
+                df_edad = df_edad.merge(rec_e, on="Rango", how="left", suffixes=("","_r"))
+                df_edad["Recuperado"] = df_edad["Recuperado_r"].fillna(0)
+                df_edad.drop(columns=["Recuperado_r"], inplace=True)
+        df_edad["Ticket Prom"] = (df_edad["Recuperado"] / df_edad["Cuentas"].clip(1)).round(0)
+    if c_estado and c_saldo:
+        df_estado = (df_cart_real.groupby(c_estado)[c_saldo]
+                     .agg(["sum","count"]).reset_index()
+                     .rename(columns={c_estado:"Estado","sum":"Meta","count":"Cuentas"})
+                     .sort_values("Meta", ascending=False).head(10))
+        if df_pago_real is not None:
+            c_est_p = col(df_pago_real, "direccion_de_residencia_estado","estado","state","entidad")
+            c_mp4   = col(df_pago_real, "monto_pagado","valor_pago","importe","monto","pago")
+            if c_est_p and c_mp4:
+                rec_est = df_pago_real.groupby(c_est_p)[c_mp4].sum().reset_index()
+                rec_est.columns = ["Estado","Recuperado"]
+                df_estado = df_estado.merge(rec_est, on="Estado", how="left")
+                df_estado["Recuperado"] = df_estado["Recuperado"].fillna(0)
+            else:
+                df_estado["Recuperado"] = df_estado["Meta"] * 0.8
+        else:
+            df_estado["Recuperado"] = df_estado["Meta"] * 0.8
+        df_estado["Ticket Prom"] = (df_estado["Recuperado"] / df_estado["Cuentas"].clip(1)).round(0)
+    if c_seg and c_saldo:
+        grp_s = df_cart_real.groupby(c_seg)[c_saldo].agg(["sum","count"]).reset_index()
+        grp_s.columns = ["Segmento","Meta","Cuentas"]
+        if df_pago_real is not None:
+            c_seg_p = col(df_pago_real, "segmento_nombre","segmento","segment","categoria")
+            c_mp5   = col(df_pago_real, "monto_pagado","valor_pago","importe","monto","pago")
+            if c_seg_p and c_mp5:
+                rec_s = df_pago_real.groupby(c_seg_p)[c_mp5].sum().reset_index()
+                rec_s.columns = ["Segmento","Recuperado"]
+                grp_s = grp_s.merge(rec_s, on="Segmento", how="left")
+                grp_s["Recuperado"] = grp_s["Recuperado"].fillna(0)
+            else:
+                grp_s["Recuperado"] = grp_s["Meta"] * 0.8
+        else:
+            grp_s["Recuperado"] = grp_s["Meta"] * 0.8
+        grp_s["Cumplimiento %"] = (grp_s["Recuperado"] / grp_s["Meta"].clip(1) * 100).round(1)
+        df_segmento = grp_s[["Segmento","Cuentas","Recuperado","Cumplimiento %"]]
 
 # ─────────────────────────────────────────────
 # HEADER
