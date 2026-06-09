@@ -966,7 +966,7 @@ with tab4:
     st.markdown('<div class="sec">Operación de Asesores — Mayo 2025</div>', unsafe_allow_html=True)
 
     avg_tmo     = df_asesores["TMO (min)"].mean()
-    total_llam  = df_asesores["Llamadas"].sum()
+    total_llam  = TOTAL_LLAMADAS
     avg_abandono= df_asesores["% Abandono"].mean()
     avg_conv    = df_asesores["Conv %"].mean()
 
