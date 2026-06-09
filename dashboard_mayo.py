@@ -174,6 +174,7 @@ df_motivos = pd.DataFrame({
 })
 
 # ── Contactabilidad ──────────────────────────
+TOTAL_LLAMADAS = 38_420   # total filas en gestiones (se sobreescribe con archivo real)
 TOTAL_INT  = 38_420
 TITULAR    = 14_820
 BUZON      = 9_105
@@ -205,35 +206,6 @@ df_sector = pd.DataFrame({
     "Recuperado": [784000, 652500, 487500, 504000, 378000, 318000],
 })
 df_sector["Cumplimiento %"] = (df_sector["Recuperado"] / df_sector["Meta"] * 100).round(1)
-
-# Calcular División real si hay datos
-if df_cart_real is not None and df_pago_real is not None:
-    c_div_rem  = col(df_cart_real, "BU (Division)","Division","division","BF")
-    c_cod_rem  = col(df_cart_real, "codigo de cliente","codigo_de_cliente")
-    c_meta_rem = col(df_cart_real, "L","Saldo","valor_saldo_deuda")
-    c_cod_pag  = col(df_pago_real, "codigo de cliente","codigo_de_cliente")
-    c_pago_bu  = col(df_pago_real, "BU (Pago total)","monto_pagado","valor_pago")
-
-    if c_div_rem and c_cod_rem and c_meta_rem and c_cod_pag and c_pago_bu:
-        # Asignación por división (único por código de cliente)
-        df_rem_unico = df_cart_real.drop_duplicates(subset=[c_cod_rem])
-        df_rem_unico[c_meta_rem] = pd.to_numeric(df_rem_unico[c_meta_rem], errors="coerce").fillna(0)
-        asig_div = df_rem_unico.groupby(c_div_rem)[c_meta_rem].sum().reset_index()
-        asig_div.columns = ["Division","Meta"]
-
-        # Pagos por división — cruzar código de cliente con remesa
-        df_pago_real[c_pago_bu] = pd.to_numeric(df_pago_real[c_pago_bu], errors="coerce").fillna(0)
-        df_cruce = df_pago_real[[c_cod_pag, c_pago_bu]].merge(
-            df_rem_unico[[c_cod_rem, c_div_rem]],
-            left_on=c_cod_pag, right_on=c_cod_rem, how="left"
-        )
-        pago_div = df_cruce.groupby(c_div_rem)[c_pago_bu].sum().reset_index()
-        pago_div.columns = ["Division","Recuperado"]
-
-        df_sector = asig_div.merge(pago_div, on="Division", how="left")
-        df_sector["Recuperado"] = df_sector["Recuperado"].fillna(0)
-        df_sector["Cumplimiento %"] = (df_sector["Recuperado"] / df_sector["Meta"].clip(1) * 100).round(1)
-        df_sector = df_sector.rename(columns={"Division":"Sector"})
 
 np.random.seed(42)
 df_gv = pd.DataFrame({
@@ -447,6 +419,33 @@ df_pago_real  = cargar_si_existe(f_pagos,    COLS_PAGOS)
 df_gest_real  = cargar_si_existe(f_gestion,  COLS_GESTION)
 df_prom_real  = cargar_si_existe(f_promesas, COLS_PROMESAS)
 
+# ── Calcular División real si hay datos ──────
+if df_cart_real is not None and df_pago_real is not None:
+    c_div_rem  = col(df_cart_real, "BU (Division)","Division","division","BF")
+    c_cod_rem  = col(df_cart_real, "codigo de cliente","codigo_de_cliente")
+    c_meta_rem = col(df_cart_real, "L","Saldo","valor_saldo_deuda")
+    c_cod_pag  = col(df_pago_real, "codigo de cliente","codigo_de_cliente")
+    c_pago_bu  = col(df_pago_real, "BU (Pago total)","monto_pagado","valor_pago")
+
+    if c_div_rem and c_cod_rem and c_meta_rem and c_cod_pag and c_pago_bu:
+        df_rem_unico = df_cart_real.drop_duplicates(subset=[c_cod_rem]).copy()
+        df_rem_unico[c_meta_rem] = pd.to_numeric(df_rem_unico[c_meta_rem], errors="coerce").fillna(0)
+        asig_div = df_rem_unico.groupby(c_div_rem)[c_meta_rem].sum().reset_index()
+        asig_div.columns = ["Division","Meta"]
+
+        df_pago_real[c_pago_bu] = pd.to_numeric(df_pago_real[c_pago_bu], errors="coerce").fillna(0)
+        df_cruce = df_pago_real[[c_cod_pag, c_pago_bu]].merge(
+            df_rem_unico[[c_cod_rem, c_div_rem]],
+            left_on=c_cod_pag, right_on=c_cod_rem, how="left"
+        )
+        pago_div = df_cruce.groupby(c_div_rem)[c_pago_bu].sum().reset_index()
+        pago_div.columns = ["Division","Recuperado"]
+
+        df_sector = asig_div.merge(pago_div, on="Division", how="left")
+        df_sector["Recuperado"] = df_sector["Recuperado"].fillna(0)
+        df_sector["Cumplimiento %"] = (df_sector["Recuperado"] / df_sector["Meta"].clip(1) * 100).round(1)
+        df_sector = df_sector.rename(columns={"Division":"Sector"})
+
 # ── Calcular métricas reales si hay datos ────
 if df_pago_real is not None:
     c_monto = col(df_pago_real, "BU (Pago total)","monto_pagado","valor_pago","importe","monto","pago")
@@ -497,6 +496,7 @@ if df_gest_real is not None:
     CONTACTADOS = ["contacto directo","contacto indirecto"]
     NO_CONTACTADO = ["no contactado"]
 
+    TOTAL_LLAMADAS = len(df_gest_real)
     if c_res and c_cod:
         res_lower = df_gest_real[c_res].astype(str).str.strip().str.lower()
         # Contact Rate por código único
@@ -744,7 +744,7 @@ with tab2:
     st.markdown('<div class="sec">Contactabilidad y Canales Digitales</div>', unsafe_allow_html=True)
 
     c1,c2,c3,c4,c5 = st.columns(5)
-    c1.metric("Total intentos",       f"{TOTAL_INT:,}")
+    c1.metric("Total llamadas",        f"{TOTAL_LLAMADAS:,}")
     c2.metric("Contact Rate",         f"{CR*100:.1f}%",  delta="–3.2pp vs abr", delta_color="inverse")
     c3.metric("Titular contactado",   f"{TITULAR:,}")
     c4.metric("Buzón + No contesta",  f"{BUZON+NO_CONT:,}")
