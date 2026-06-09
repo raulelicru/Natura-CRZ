@@ -24,27 +24,26 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-DARK  = "#0f172a"
-CARD  = "#1e293b"
-BLUE  = "#3b82f6"
-GREEN = "#22c55e"
-RED   = "#ef4444"
-AMBER = "#f59e0b"
-PURPLE= "#8b5cf6"
-SLATE = "#64748b"
-TEXT  = "#f1f5f9"
-MUTED = "#94a3b8"
+DARK  = "#ffffff"
+CARD  = "#f1f5f9"
+BLUE  = "#2563eb"
+GREEN = "#16a34a"
+RED   = "#dc2626"
+AMBER = "#d97706"
+PURPLE= "#7c3aed"
+SLATE = "#475569"
+TEXT  = "#0f172a"
+MUTED = "#64748b"
 
 st.markdown(f"""
 <style>
-  /* fondo general */
-  .stApp {{ background-color: {DARK}; color: {TEXT}; }}
-  [data-testid="stAppViewContainer"] {{ background-color: {DARK}; }}
-  [data-testid="stHeader"] {{ background-color: {DARK}; }}
+  .stApp {{ background-color: #ffffff; color: {TEXT}; }}
+  [data-testid="stAppViewContainer"] {{ background-color: #ffffff; }}
+  [data-testid="stHeader"] {{ background-color: #ffffff; }}
+  [data-testid="stSidebar"] {{ background-color: #f8fafc; }}
 
-  /* tabs */
   .stTabs [data-baseweb="tab-list"] {{
-      background: {CARD}; border-radius: 10px; padding: 4px; gap: 4px;
+      background: #f1f5f9; border-radius: 10px; padding: 4px; gap: 4px;
   }}
   .stTabs [data-baseweb="tab"] {{
       color: {MUTED}; border-radius: 8px; font-weight: 600; font-size: 0.85rem;
@@ -53,31 +52,27 @@ st.markdown(f"""
       background: {BLUE} !important; color: white !important;
   }}
 
-  /* dataframes */
   [data-testid="stDataFrame"] {{ border-radius: 10px; }}
 
-  /* métricas */
   [data-testid="stMetric"] {{
-      background: {CARD}; border-radius: 10px; padding: 14px 18px;
+      background: #f8fafc; border-radius: 10px; padding: 14px 18px;
+      border-left: 3px solid {BLUE}; border: 1px solid #e2e8f0;
       border-left: 3px solid {BLUE};
   }}
   [data-testid="stMetricValue"] {{ color: {TEXT} !important; font-size: 1.8rem !important; }}
   [data-testid="stMetricLabel"] {{ color: {MUTED} !important; }}
 
-  /* títulos de sección */
   .sec {{ font-size: 1.2rem; font-weight: 700; color: {TEXT};
-          border-bottom: 2px solid #334155; padding-bottom: 6px; margin: 8px 0 16px 0; }}
+          border-bottom: 2px solid #e2e8f0; padding-bottom: 6px; margin: 8px 0 16px 0; }}
 
-  /* badge */
   .badge {{
       display:inline-block; padding: 2px 10px; border-radius: 20px;
       font-size: 0.78rem; font-weight: 700;
   }}
-  .badge-red   {{ background:#450a0a; color:{RED};   border:1px solid {RED}; }}
-  .badge-green {{ background:#052e16; color:{GREEN}; border:1px solid {GREEN}; }}
-  .badge-amber {{ background:#451a03; color:{AMBER}; border:1px solid {AMBER}; }}
+  .badge-red   {{ background:#fef2f2; color:{RED};   border:1px solid {RED}; }}
+  .badge-green {{ background:#f0fdf4; color:{GREEN}; border:1px solid {GREEN}; }}
+  .badge-amber {{ background:#fffbeb; color:{AMBER}; border:1px solid {AMBER}; }}
 
-  /* alerta box */
   [data-testid="stAlert"] {{ border-radius: 10px; }}
 </style>
 """, unsafe_allow_html=True)
@@ -91,9 +86,8 @@ PLOTLY_LAYOUT = dict(
 
 def apply_layout(fig, **kwargs):
     layout = {**PLOTLY_LAYOUT, **kwargs}
-    # merge xaxis/yaxis dicts en lugar de sobreescribir
     for ax in ("xaxis", "yaxis", "xaxis2", "yaxis2"):
-        base = dict(gridcolor="#334155", linecolor="#334155")
+        base = dict(gridcolor="#e2e8f0", linecolor="#cbd5e1")
         if ax in kwargs:
             base.update(kwargs[ax])
             layout[ax] = base
