@@ -386,23 +386,44 @@ COLS_PROMESAS = ["monto_promesa","promesa_monto","monto","importe",
                   "fecha_promesa","fecha","cumplida","estatus","status","resultado"]
 
 @st.cache_data(show_spinner="Cargando archivos, espera...")
-def cargar_archivos(fc, fp, fg, fpr):
-    return (
-        leer_archivo(fc,  COLS_CARTERA)  if fc  else None,
-        leer_archivo(fp,  COLS_PAGOS)    if fp  else None,
-        leer_archivo(fg,  COLS_GESTION)  if fg  else None,
-        leer_archivo(fpr, COLS_PROMESAS) if fpr else None,
-    )
+def cargar_desde_bytes(bytes_data, nombre, cols):
+    import io
+    f = io.BytesIO(bytes_data)
+    try:
+        if nombre.lower().endswith((".xlsx", ".xls")):
+            df_head = pd.read_excel(f, nrows=0, engine="openpyxl")
+            f.seek(0)
+            cols_ok = [c for c in cols if c in df_head.columns]
+            return pd.read_excel(f, usecols=cols_ok if cols_ok else None, engine="openpyxl")
+        else:
+            df_head = pd.read_csv(f, nrows=0, encoding="utf-8-sig")
+            f.seek(0)
+            cols_ok = [c for c in cols if c in df_head.columns]
+            return pd.read_csv(f, usecols=cols_ok if cols_ok else None, encoding="utf-8-sig", low_memory=False)
+    except Exception:
+        try:
+            f.seek(0)
+            return pd.read_csv(f, encoding="latin-1", low_memory=False)
+        except Exception:
+            return None
 
-df_cart_real, df_pago_real, df_gest_real, df_prom_real = cargar_archivos(
-    f_cartera, f_pagos, f_gestion, f_promesas
-)
+def cargar_si_existe(f, cols):
+    if f is None:
+        return None
+    return cargar_desde_bytes(f.read(), f.name, cols)
+
+df_cart_real  = cargar_si_existe(f_cartera,  COLS_CARTERA)
+df_pago_real  = cargar_si_existe(f_pagos,    COLS_PAGOS)
+df_gest_real  = cargar_si_existe(f_gestion,  COLS_GESTION)
+df_prom_real  = cargar_si_existe(f_promesas, COLS_PROMESAS)
 
 # ── Calcular métricas reales si hay datos ────
 if df_pago_real is not None:
     c_monto = col(df_pago_real, "monto_pagado","valor_pago","importe","monto","pago")
     c_fecha = col(df_pago_real, "fecha_pago","fecha","date","fecha_operacion")
     c_asesor= col(df_pago_real, "asesor","ejecutivo","agente","nombre_asesor")
+    if c_monto:
+        df_pago_real[c_monto] = pd.to_numeric(df_pago_real[c_monto], errors="coerce").fillna(0)
     RECUPERADO_TOTAL = df_pago_real[c_monto].sum() if c_monto else RECUPERADO_TOTAL
     if c_fecha and c_monto:
         df_pago_real[c_fecha] = pd.to_datetime(df_pago_real[c_fecha], errors="coerce")
