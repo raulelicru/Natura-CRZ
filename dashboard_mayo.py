@@ -103,13 +103,28 @@ def apply_layout(fig, **kwargs):
 # ─────────────────────────────────────────────
 # HELPERS DE CARGA
 # ─────────────────────────────────────────────
-def leer_archivo(f):
+def leer_archivo(f, cols_necesarias=None):
     if f is None:
         return None
     try:
+        f.seek(0)
         if f.name.lower().endswith((".xlsx", ".xls")):
-            return pd.read_excel(f)
-        return pd.read_csv(f, encoding="utf-8-sig", low_memory=False)
+            # Leer solo encabezados primero
+            df_head = pd.read_excel(f, nrows=0)
+            f.seek(0)
+            if cols_necesarias:
+                cols_ok = [c for c in cols_necesarias if c in df_head.columns]
+                if cols_ok:
+                    return pd.read_excel(f, usecols=cols_ok, engine="openpyxl")
+            return pd.read_excel(f, engine="openpyxl")
+        else:
+            df_head = pd.read_csv(f, nrows=0, encoding="utf-8-sig")
+            f.seek(0)
+            if cols_necesarias:
+                cols_ok = [c for c in cols_necesarias if c in df_head.columns]
+                if cols_ok:
+                    return pd.read_csv(f, usecols=cols_ok, encoding="utf-8-sig", low_memory=False)
+            return pd.read_csv(f, encoding="utf-8-sig", low_memory=False)
     except Exception:
         try:
             f.seek(0)
@@ -358,10 +373,23 @@ with st.sidebar:
 # ─────────────────────────────────────────────
 # CARGAR DATAFRAMES REALES SI EXISTEN
 # ─────────────────────────────────────────────
-df_cart_real  = leer_archivo(f_cartera)  if f_cartera  else None
-df_pago_real  = leer_archivo(f_pagos)   if f_pagos    else None
-df_gest_real  = leer_archivo(f_gestion) if f_gestion  else None
-df_prom_real  = leer_archivo(f_promesas)if f_promesas else None
+COLS_CARTERA  = ["valor_saldo_deuda","zona","estado","segmento_nombre","edad_consultora",
+                  "division","red","direccion_de_residencia_estado","numero_clave"]
+COLS_PAGOS    = ["monto_pagado","valor_pago","importe","monto","pago",
+                  "fecha_pago","fecha","asesor","ejecutivo","agente",
+                  "zona","direccion_de_residencia_estado","estado","edad_consultora",
+                  "segmento_nombre"]
+COLS_GESTION  = ["resultado","resultado_gestion","disposicion","tipificacion",
+                  "hora_llamada","hora","canal","medio","channel","tipo_contacto",
+                  "asesor","ejecutivo","agente","duracion_seg","duracion","tmo"]
+COLS_PROMESAS = ["monto_promesa","promesa_monto","monto","importe",
+                  "fecha_promesa","fecha","cumplida","estatus","status","resultado"]
+
+with st.spinner("Cargando archivos..."):
+    df_cart_real  = leer_archivo(f_cartera,  COLS_CARTERA)  if f_cartera  else None
+    df_pago_real  = leer_archivo(f_pagos,    COLS_PAGOS)    if f_pagos    else None
+    df_gest_real  = leer_archivo(f_gestion,  COLS_GESTION)  if f_gestion  else None
+    df_prom_real  = leer_archivo(f_promesas, COLS_PROMESAS) if f_promesas else None
 
 # ── Calcular métricas reales si hay datos ────
 if df_pago_real is not None:
