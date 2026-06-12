@@ -370,6 +370,11 @@ if df_cart_real is not None:
             else: df_scatter_edad["Segmento"]="Sin segmento"
             df_scatter_edad=df_scatter_edad.dropna()
 
+# ajustar motivos de caída para que la suma coincida con PROMESAS_CAIDAS
+df_motivos["Casos"]=(df_motivos["Casos"]/df_motivos["Casos"].sum()*PROMESAS_CAIDAS).round().astype(int)
+_diff=int(PROMESAS_CAIDAS-df_motivos["Casos"].sum())
+df_motivos.loc[df_motivos["Casos"].idxmax(),"Casos"]+=_diff
+
 # ── HEADER ──
 c1h,c2h,c3h=st.columns([3,1,1])
 with c1h:
