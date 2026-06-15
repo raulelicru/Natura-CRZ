@@ -3,6 +3,7 @@ Dashboard de Cobranza Mayo 2025 — NAtura
 Indicadores ejecutivos para reunion de cierre de mes
 """
 
+import re
 import random
 import numpy as np
 import pandas as pd
@@ -530,7 +531,8 @@ if f_comparativo is not None:
                 for r in range(header_row_c+1,ws_c.max_row+1):
                     tramo_val=ws_c.cell(row=r,column=col_tramo).value
                     if not isinstance(tramo_val,str): continue
-                    tramo_key=tramo_val.strip().upper()
+                    m=re.search(r"\d+",tramo_val)
+                    tramo_key=f"T{m.group(0)}" if m else tramo_val.strip().upper()
                     if tramo_key not in totales_tramo: continue
                     cobranza_val=totales_tramo[tramo_key]
                     ws_c.cell(row=r,column=cols_c["Cobranza"]).value=cobranza_val
