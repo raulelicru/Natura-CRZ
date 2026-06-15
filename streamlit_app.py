@@ -8,6 +8,7 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import openpyxl
 
 random.seed(2025)
 np.random.seed(2025)
@@ -76,7 +77,8 @@ with st.sidebar:
     f_pagos   =st.file_uploader("💰 Pagos / Recuperación",type=["csv","xlsx","xls"],key="pagos")
     f_gestion =st.file_uploader("📞 Gestión de llamadas", type=["csv","xlsx","xls"],key="gestion")
     f_promesas=st.file_uploader("🤝 Promesas de pago",    type=["csv","xlsx","xls"],key="promesas")
-    MODO_REAL=any([f_cartera,f_pagos,f_gestion,f_promesas])
+    f_comparativo=st.file_uploader("📑 Comparativo Cobranza (Pagos + Comparativo)",type=["xlsx","xls"],key="comparativo")
+    MODO_REAL=any([f_cartera,f_pagos,f_gestion,f_promesas,f_comparativo])
     st.markdown("---")
     btn_ejecutar = st.button("▶ Ejecutar", type="primary", use_container_width=True,
                              help="Procesa los archivos cargados y actualiza el dashboard")
@@ -110,7 +112,7 @@ if not st.session_state.get("ejecutado"):
         f"<div style='font-size:1.4rem;font-weight:700;color:{TEXT};margin:12px 0'>Carga tus archivos y presiona Ejecutar</div>"
         f"<div style='color:{MUTED};font-size:0.95rem'>O bien presiona <b>Ejecutar</b> directamente para ver el dashboard con datos de ejemplo.</div>"
         f"<div style='margin-top:24px;color:{MUTED};font-size:0.85rem'>"
-        f"📋 Cartera &nbsp;|&nbsp; 💰 Pagos &nbsp;|&nbsp; 📞 Gestión &nbsp;|&nbsp; 🤝 Promesas</div>"
+        f"📋 Cartera &nbsp;|&nbsp; 💰 Pagos &nbsp;|&nbsp; 📞 Gestión &nbsp;|&nbsp; 🤝 Promesas &nbsp;|&nbsp; 📑 Comparativo</div>"
         f"</div>",
         unsafe_allow_html=True
     )
@@ -370,6 +372,128 @@ if df_cart_real is not None:
             else: df_scatter_edad["Segmento"]="Sin segmento"
             df_scatter_edad=df_scatter_edad.dropna()
 
+# ── COMPARATIVO COBRANZA POR TRAMO (sincronización Pagos → Comparativo) ──
+df_pagos_diario=None
+df_comparativo=None
+RESUMEN_COMP=None
+if f_comparativo is not None:
+    try:
+        wb=openpyxl.load_workbook(f_comparativo,data_only=True)
+        sh_pagos=next((s for s in wb.sheetnames if "PAGO" in s.upper()),None)
+        sh_comp =next((s for s in wb.sheetnames if "COMPARATIV" in s.upper()),None)
+        if sh_pagos and sh_comp:
+            ws_p=wb[sh_pagos]; ws_c=wb[sh_comp]
+
+            # localizar fila de encabezados (T1..Tn) en hoja de pagos
+            header_row=None
+            for r in range(1,min(ws_p.max_row,10)+1):
+                row_vals=[ws_p.cell(row=r,column=c).value for c in range(1,ws_p.max_column+1)]
+                if any(isinstance(v,str) and v.strip().upper()=="T1" for v in row_vals):
+                    header_row=r; break
+            tramo_cols={}
+            if header_row:
+                for c in range(1,ws_p.max_column+1):
+                    v=ws_p.cell(row=header_row,column=c).value
+                    if isinstance(v,str):
+                        vu=v.strip().upper()
+                        if len(vu)>=2 and vu[0]=="T" and vu[1:].isdigit():
+                            tramo_cols[vu]=c
+
+            # localizar fila TOTAL
+            total_row=None
+            if header_row:
+                for r in range(header_row+1,ws_p.max_row+1):
+                    v1=ws_p.cell(row=r,column=1).value
+                    v2=ws_p.cell(row=r,column=2).value
+                    if (isinstance(v1,str) and "TOTAL" in v1.upper()) or (isinstance(v2,str) and "TOTAL" in v2.upper()):
+                        total_row=r; break
+
+            # totales por tramo (fila TOTAL)
+            totales_tramo={t:float(ws_p.cell(row=total_row,column=c).value or 0) for t,c in tramo_cols.items()} if total_row else {}
+
+            # pagos diarios (columna B = fecha, suma de tramos por día)
+            registros=[]
+            if header_row and total_row:
+                for r in range(header_row+1,total_row):
+                    fecha=ws_p.cell(row=r,column=2).value
+                    if fecha is None: continue
+                    total_dia=sum(float(ws_p.cell(row=r,column=c).value or 0) for c in tramo_cols.values())
+                    registros.append({"Fecha":fecha,"Total Día":total_dia})
+            if registros:
+                df_pagos_diario=pd.DataFrame(registros)
+                df_pagos_diario["Fecha"]=pd.to_datetime(df_pagos_diario["Fecha"],errors="coerce")
+                df_pagos_diario=df_pagos_diario.dropna(subset=["Fecha"]).sort_values("Fecha").reset_index(drop=True)
+                df_pagos_diario["Acumulado"]=df_pagos_diario["Total Día"].cumsum()
+
+            # localizar encabezados en hoja Comparativo
+            header_row_c=None
+            for r in range(1,min(ws_c.max_row,10)+1):
+                row_vals=[ws_c.cell(row=r,column=c).value for c in range(1,ws_c.max_column+1)]
+                if any(isinstance(v,str) and "CARTERA" in v.upper() for v in row_vals):
+                    header_row_c=r; break
+
+            cols_c={}
+            if header_row_c:
+                for c in range(1,ws_c.max_column+1):
+                    v=ws_c.cell(row=header_row_c,column=c).value
+                    if not isinstance(v,str): continue
+                    vu=v.strip().upper()
+                    if "CARTERA" in vu: cols_c["Cartera"]=c
+                    elif "OBJETIVO" in vu and "%" in vu: cols_c["Objetivo %"]=c
+                    elif "OBJETIVO" in vu: cols_c["Objetivo $"]=c
+                    elif "CUENTA" in vu: cols_c["Cuentas"]=c
+                    elif "COBRANZA" in vu: cols_c["Cobranza"]=c
+                    elif "TRAMO" in vu or "TEMPORALIDAD" in vu: cols_c["Tramo"]=c
+
+            # sincronizar Cobranza $ por tramo (escribe el valor calculado en la hoja en memoria)
+            comp_rows=[]
+            if header_row_c and "Cobranza" in cols_c:
+                col_tramo=cols_c.get("Tramo",1)
+                for r in range(header_row_c+1,ws_c.max_row+1):
+                    tramo_val=ws_c.cell(row=r,column=col_tramo).value
+                    if not isinstance(tramo_val,str): continue
+                    tramo_key=tramo_val.strip().upper()
+                    if tramo_key not in totales_tramo: continue
+                    cobranza_val=totales_tramo[tramo_key]
+                    ws_c.cell(row=r,column=cols_c["Cobranza"]).value=cobranza_val
+                    comp_rows.append({
+                        "Tramo":tramo_val.strip(),
+                        "Cuentas":ws_c.cell(row=r,column=cols_c["Cuentas"]).value if "Cuentas" in cols_c else None,
+                        "Cartera $":float(ws_c.cell(row=r,column=cols_c["Cartera"]).value or 0) if "Cartera" in cols_c else 0.0,
+                        "Objetivo $":float(ws_c.cell(row=r,column=cols_c["Objetivo $"]).value or 0) if "Objetivo $" in cols_c else 0.0,
+                        "Objetivo %":ws_c.cell(row=r,column=cols_c["Objetivo %"]).value if "Objetivo %" in cols_c else None,
+                        "Cobranza $":cobranza_val,
+                    })
+
+            if comp_rows:
+                df_comparativo=pd.DataFrame(comp_rows)
+                df_comparativo["Cumplimiento %"]=(df_comparativo["Cobranza $"]/df_comparativo["Objetivo $"].replace(0,np.nan)*100).round(1)
+
+                total_cartera =df_comparativo["Cartera $"].sum()
+                total_objetivo=df_comparativo["Objetivo $"].sum()
+                total_cobranza=df_comparativo["Cobranza $"].sum()
+
+                if df_pagos_diario is not None and len(df_pagos_diario)>0:
+                    ult_fecha=df_pagos_diario["Fecha"].max()
+                    dias_transcurridos=df_pagos_diario["Fecha"].nunique()
+                    dias_totales_mes=pd.Period(ult_fecha,freq="M").days_in_month
+                    dias_pendientes=max(dias_totales_mes-ult_fecha.day,0)
+                    promedio_diario=total_cobranza/max(dias_transcurridos,1)
+                    proyeccion_total=total_cobranza+promedio_diario*dias_pendientes
+                else:
+                    ult_fecha=None; dias_transcurridos=0; dias_totales_mes=0
+                    dias_pendientes=0; promedio_diario=0.0; proyeccion_total=total_cobranza
+
+                RESUMEN_COMP=dict(
+                    total_cartera=total_cartera,total_objetivo=total_objetivo,total_cobranza=total_cobranza,
+                    cumplimiento=(total_cobranza/total_objetivo*100) if total_objetivo else 0.0,
+                    dias_transcurridos=dias_transcurridos,dias_pendientes=dias_pendientes,
+                    dias_totales_mes=dias_totales_mes,promedio_diario=promedio_diario,
+                    proyeccion_total=proyeccion_total,ultima_fecha=ult_fecha,
+                )
+    except Exception as e:
+        st.sidebar.error(f"Error procesando archivo Comparativo: {e}")
+
 # ajustar motivos de caída para que la suma coincida con PROMESAS_CAIDAS
 df_motivos["Casos"]=(df_motivos["Casos"]/df_motivos["Casos"].sum()*PROMESAS_CAIDAS).round().astype(int)
 _diff=int(PROMESAS_CAIDAS-df_motivos["Casos"].sum())
@@ -386,8 +510,9 @@ with c2h:
 with c3h:
     st.metric("Contact Rate",f"{CR*100:.1f}%",delta="–3.2pp vs abr")
 
-tab1,tab2,tab3,tab4,tab5=st.tabs([
-    "1 · Cierre de Mes","2 · Contactabilidad","3 · Indicadores","4 · Operación","5 · Plan de Trabajo"])
+tab1,tab2,tab3,tab4,tab5,tab6=st.tabs([
+    "1 · Cierre de Mes","2 · Contactabilidad","3 · Indicadores","4 · Operación","5 · Plan de Trabajo",
+    "6 · Comparativo Cobranza"])
 
 # ══ TAB 1 ─ CIERRE DE MES ══
 with tab1:
@@ -786,3 +911,85 @@ with tab5:
     st.success(f"**Resumen ejecutivo:** Palancas propuestas: **${total_impacto/1e6:.2f}M** adicional, "
                f"cubriendo **{total_impacto/gap_jun*100:.0f}%** del gap. "
                f"Prioridad #1: rellamada a las **{PROMESAS_CAIDAS} promesas caídas** de Mayo.")
+
+# ══ TAB 6 ─ COMPARATIVO COBRANZA ══
+with tab6:
+    st.markdown('<div class="sec">Comparativo Cobranza por Tramo</div>',unsafe_allow_html=True)
+    if df_comparativo is None:
+        st.markdown(
+            f"<div style='text-align:center;padding:50px 20px;background:{CARD};border-radius:16px;"
+            f"border:2px dashed {BORD}'>"
+            f"<div style='font-size:2.5rem'>📑</div>"
+            f"<div style='font-size:1.2rem;font-weight:700;color:{TEXT};margin:10px 0'>Sube el archivo Comparativo</div>"
+            f"<div style='color:{MUTED};font-size:0.9rem'>Carga el Excel con las hojas <b>'TABLA DE PAGOS'</b> y <b>'COMPARATIVO'</b> "
+            f"en la barra lateral (📑 Comparativo Cobranza) y presiona <b>Ejecutar</b>.<br>"
+            f"El sistema sincronizará automáticamente la Cobranza $ por tramo desde los totales de Pagos.</div>"
+            f"</div>", unsafe_allow_html=True)
+    else:
+        r=RESUMEN_COMP
+        c1,c2,c3,c4=st.columns(4)
+        c1.metric("Cartera asignada",f"${r['total_cartera']/1e6:.2f}M")
+        c2.metric("Objetivo del mes",f"${r['total_objetivo']/1e6:.2f}M")
+        c3.metric("Cobranza actual",f"${r['total_cobranza']/1e6:.2f}M",
+                  delta=f"{r['cumplimiento']-100:.1f}pp vs objetivo")
+        c4.metric("Días pendientes",f"{r['dias_pendientes']:.0f} de {r['dias_totales_mes']}")
+        st.markdown("---")
+
+        cl,cr=st.columns(2)
+        with cl:
+            st.markdown("**Cartera, Objetivo y Cobranza por Tramo**")
+            fig=go.Figure()
+            fig.add_trace(go.Bar(name="Cartera $",x=df_comparativo["Tramo"],y=df_comparativo["Cartera $"],marker_color="#cbd5e1",opacity=0.85))
+            fig.add_trace(go.Bar(name="Objetivo $",x=df_comparativo["Tramo"],y=df_comparativo["Objetivo $"],marker_color=SLATE,opacity=0.85))
+            fig.add_trace(go.Bar(name="Cobranza $",x=df_comparativo["Tramo"],y=df_comparativo["Cobranza $"],marker_color=BLUE))
+            apply_layout(fig,height=340,barmode="group",legend=dict(orientation="h",y=1.1),
+                         yaxis=dict(tickprefix="$",tickformat=",.0f"))
+            st.plotly_chart(fig,use_container_width=True)
+        with cr:
+            st.markdown("**% de Cumplimiento de Objetivo por Tramo**")
+            df_cs=df_comparativo.sort_values("Cumplimiento %")
+            fig2=go.Figure(go.Bar(x=df_cs["Cumplimiento %"],y=df_cs["Tramo"],orientation="h",
+                marker_color=[GREEN if p>=100 else AMBER if p>=70 else RED for p in df_cs["Cumplimiento %"]],
+                text=df_cs["Cumplimiento %"].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "—"),
+                textposition="outside",textfont=dict(color=TEXT)))
+            fig2.add_vline(x=100,line_dash="dash",line_color=GREEN,annotation_text="Meta 100%",annotation_font_color=GREEN)
+            apply_layout(fig2,height=340,xaxis=dict(ticksuffix="%"))
+            st.plotly_chart(fig2,use_container_width=True)
+
+        if df_pagos_diario is not None and len(df_pagos_diario)>0:
+            st.markdown("---")
+            st.markdown("**Cobranza diaria y acumulado**")
+            fig3=make_subplots(specs=[[{"secondary_y":True}]])
+            fig3.add_trace(go.Bar(x=df_pagos_diario["Fecha"],y=df_pagos_diario["Total Día"],name="Cobranza diaria",
+                                  marker_color=BLUE,opacity=0.75),secondary_y=False)
+            fig3.add_trace(go.Scatter(x=df_pagos_diario["Fecha"],y=df_pagos_diario["Acumulado"],name="Acumulado",
+                                      mode="lines+markers",line=dict(color=GREEN,width=3),marker=dict(size=5)),secondary_y=True)
+            fig3.add_hline(y=r["promedio_diario"],line_dash="dash",line_color=AMBER,
+                           annotation_text=f"Promedio diario: ${r['promedio_diario']:,.0f}",annotation_font_color=AMBER)
+            fig3.update_layout(**PLOTLY_LAYOUT,height=340,legend=dict(orientation="h",y=1.1))
+            fig3.update_yaxes(tickprefix="$",tickformat=",.0f",secondary_y=False,gridcolor="#e2e8f0")
+            fig3.update_yaxes(tickprefix="$",tickformat=",.0f",secondary_y=True,gridcolor="rgba(0,0,0,0)")
+            st.plotly_chart(fig3,use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("**Detalle por Tramo (sincronizado desde Pagos)**")
+        fmt={"Cartera $":"${:,.0f}","Objetivo $":"${:,.0f}","Cobranza $":"${:,.0f}",
+             "Cumplimiento %":"{:.1f}%"}
+        if "Objetivo %" in df_comparativo.columns:
+            fmt["Objetivo %"]="{:.1f}%"
+        if "Cuentas" in df_comparativo.columns:
+            fmt["Cuentas"]="{:,.0f}"
+        st.dataframe(df_comparativo.style.format(fmt),use_container_width=True,hide_index=True)
+
+        st.markdown("---")
+        if r["proyeccion_total"]>=r["total_objetivo"]:
+            st.success(f"**Proyección de cierre de mes:** ${r['proyeccion_total']/1e6:.2f}M — al ritmo actual "
+                       f"(${r['promedio_diario']:,.0f}/día durante {r['dias_pendientes']:.0f} días restantes) "
+                       f"se **superaría el objetivo** de ${r['total_objetivo']/1e6:.2f}M "
+                       f"(cumplimiento actual {r['cumplimiento']:.1f}%).")
+        else:
+            falta=r["total_objetivo"]-r["proyeccion_total"]
+            st.warning(f"**Proyección de cierre de mes:** ${r['proyeccion_total']/1e6:.2f}M — al ritmo actual "
+                       f"(${r['promedio_diario']:,.0f}/día durante {r['dias_pendientes']:.0f} días restantes) "
+                       f"**faltarían ${falta/1e6:.2f}M** para alcanzar el objetivo de ${r['total_objetivo']/1e6:.2f}M "
+                       f"(cumplimiento actual {r['cumplimiento']:.1f}%).")
