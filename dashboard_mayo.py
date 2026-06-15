@@ -431,11 +431,16 @@ df_prom_real  = cargar_si_existe(f_promesas, COLS_PROMESAS)
 df_pagos_diario=None
 df_comparativo=None
 RESUMEN_COMP=None
+DEBUG_COMP=None
 if f_comparativo is not None:
+    DEBUG_COMP={}
     try:
         wb=openpyxl.load_workbook(f_comparativo,data_only=True)
+        DEBUG_COMP["hojas"]=wb.sheetnames
         sh_pagos=next((s for s in wb.sheetnames if "PAGO" in s.upper()),None)
         sh_comp =next((s for s in wb.sheetnames if "COMPARATIV" in s.upper()),None)
+        DEBUG_COMP["hoja_pagos"]=sh_pagos
+        DEBUG_COMP["hoja_comparativo"]=sh_comp
         if sh_pagos and sh_comp:
             ws_p=wb[sh_pagos]; ws_c=wb[sh_comp]
 
@@ -453,6 +458,8 @@ if f_comparativo is not None:
                         vu=v.strip().upper()
                         if len(vu)>=2 and vu[0]=="T" and vu[1:].isdigit():
                             tramo_cols[vu]=c
+            DEBUG_COMP["header_row_pagos"]=header_row
+            DEBUG_COMP["tramo_cols"]=tramo_cols
 
             # localizar fila TOTAL
             total_row=None
@@ -463,8 +470,11 @@ if f_comparativo is not None:
                     if (isinstance(v1,str) and "TOTAL" in v1.upper()) or (isinstance(v2,str) and "TOTAL" in v2.upper()):
                         total_row=r; break
 
+            DEBUG_COMP["total_row_pagos"]=total_row
+
             # totales por tramo (fila TOTAL)
             totales_tramo={t:float(ws_p.cell(row=total_row,column=c).value or 0) for t,c in tramo_cols.items()} if total_row else {}
+            DEBUG_COMP["totales_tramo"]=totales_tramo
 
             # pagos diarios (columna B = fecha, suma de tramos por día)
             registros=[]
@@ -487,6 +497,8 @@ if f_comparativo is not None:
                 if any(isinstance(v,str) and "CARTERA" in v.upper() for v in row_vals):
                     header_row_c=r; break
 
+            DEBUG_COMP["header_row_comparativo"]=header_row_c
+
             cols_c={}
             if header_row_c:
                 for c in range(1,ws_c.max_column+1):
@@ -499,6 +511,17 @@ if f_comparativo is not None:
                     elif "CUENTA" in vu: cols_c["Cuentas"]=c
                     elif "COBRANZA" in vu: cols_c["Cobranza"]=c
                     elif "TRAMO" in vu or "TEMPORALIDAD" in vu: cols_c["Tramo"]=c
+            DEBUG_COMP["cols_comparativo"]=cols_c
+
+            # valores de la columna Tramo detectados (para comparar con totales_tramo)
+            tramo_vals_c=[]
+            if header_row_c:
+                col_tramo_dbg=cols_c.get("Tramo",1)
+                for r in range(header_row_c+1,ws_c.max_row+1):
+                    v=ws_c.cell(row=r,column=col_tramo_dbg).value
+                    if v is not None:
+                        tramo_vals_c.append(v)
+            DEBUG_COMP["tramo_vals_comparativo"]=tramo_vals_c
 
             # sincronizar Cobranza $ por tramo (escribe el valor calculado en la hoja en memoria)
             comp_rows=[]
@@ -548,6 +571,7 @@ if f_comparativo is not None:
                 )
     except Exception as e:
         st.sidebar.error(f"Error procesando archivo Comparativo: {e}")
+        DEBUG_COMP["error"]=str(e)
 
 # ── Calcular División real si hay datos ──────
 if df_cart_real is not None:
@@ -1294,6 +1318,21 @@ with tab6:
             f"en la pantalla de inicio (📑 Comparativo Cobranza) y presiona el botón para ver el dashboard.<br>"
             f"El sistema sincronizará automáticamente la Cobranza $ por tramo desde los totales de Pagos.</div>"
             f"</div>", unsafe_allow_html=True)
+        if DEBUG_COMP is not None:
+            st.markdown("---")
+            with st.expander("🔍 Diagnóstico del archivo subido (clic para ver detalle)"):
+                st.write("**Hojas encontradas:**", DEBUG_COMP.get("hojas"))
+                st.write("**Hoja de Pagos detectada:**", DEBUG_COMP.get("hoja_pagos"))
+                st.write("**Hoja de Comparativo detectada:**", DEBUG_COMP.get("hoja_comparativo"))
+                st.write("**Fila de encabezados T1..Tn (Pagos):**", DEBUG_COMP.get("header_row_pagos"))
+                st.write("**Columnas de tramo detectadas (Pagos):**", DEBUG_COMP.get("tramo_cols"))
+                st.write("**Fila TOTAL (Pagos):**", DEBUG_COMP.get("total_row_pagos"))
+                st.write("**Totales por tramo (fila TOTAL):**", DEBUG_COMP.get("totales_tramo"))
+                st.write("**Fila de encabezados (Comparativo):**", DEBUG_COMP.get("header_row_comparativo"))
+                st.write("**Columnas detectadas (Comparativo):**", DEBUG_COMP.get("cols_comparativo"))
+                st.write("**Valores de la columna Tramo (Comparativo):**", DEBUG_COMP.get("tramo_vals_comparativo"))
+                if "error" in DEBUG_COMP:
+                    st.error(DEBUG_COMP["error"])
     else:
         r = RESUMEN_COMP
         c1, c2, c3, c4 = st.columns(4)
