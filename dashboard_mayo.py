@@ -142,6 +142,170 @@ def col(df, *opciones):
     return None
 
 # ─────────────────────────────────────────────
+# PLAN DE ACCIÓN COBRANZA — helpers de cálculo
+# ─────────────────────────────────────────────
+PAC_NAVY="#0D1B2A"; PAC_TEAL="#1B6CA8"; PAC_TEAL2="#2A9D8F"
+PAC_AMBER="#E9C46A"; PAC_CORAL="#E76F51"; PAC_RED="#C1121F"
+
+PAC_COLS_REQUERIDAS = [
+    ("id","folio"),
+    ("aging_de_morosidad",),
+    ("dias_de_morosidad",),
+    ("saldo_insoluto",),
+    ("valor_original_deuda",),
+    ("pago_actual",),
+    ("status_rep",),
+    ("edad_consultora",),
+    ("segmentacion_rep",),
+    ("division",),
+    ("zona",),
+    ("campana_numero",),
+    ("score_riesgo",),
+    ("numero_telefono_celular",),
+    ("correo_electronico",),
+]
+
+PAC_UMBRALES = {"T1":30,"T2":60,"T3":90,"T4":120,"T5":150,"T6":180,"T7":None}
+
+def pac_validar_columnas(df):
+    faltantes=[]
+    encontradas={}
+    cols_lower={c.lower().strip():c for c in df.columns}
+    for opciones in PAC_COLS_REQUERIDAS:
+        encontrada=None
+        for o in opciones:
+            if o in cols_lower:
+                encontrada=cols_lower[o]; break
+        if encontrada:
+            encontradas[opciones[0]]=encontrada
+        else:
+            faltantes.append(" / ".join(opciones))
+    return encontradas, faltantes
+
+def pac_temporalidad(dias):
+    if dias<=30: return "T1"
+    elif dias<=60: return "T2"
+    elif dias<=90: return "T3"
+    elif dias<=120: return "T4"
+    elif dias<=150: return "T5"
+    elif dias<=180: return "T6"
+    else: return "T7"
+
+def pac_dias_para_migrar(dias, temporalidad):
+    umbral=PAC_UMBRALES[temporalidad]
+    if umbral is None:
+        return 9999
+    return max(umbral-dias,0)
+
+def pac_riesgo(dias_para_migrar):
+    if dias_para_migrar<=7: return "Crítico"
+    elif dias_para_migrar<=15: return "Alto"
+    elif dias_para_migrar<=30: return "Preventivo"
+    else: return "Estable"
+
+def pac_procesar(df_raw, encontradas):
+    df=df_raw.copy()
+    c=encontradas
+    df[c["dias_de_morosidad"]]=pd.to_numeric(df[c["dias_de_morosidad"]],errors="coerce").fillna(0)
+    df[c["saldo_insoluto"]]=pd.to_numeric(df[c["saldo_insoluto"]],errors="coerce").fillna(0)
+    df[c["valor_original_deuda"]]=pd.to_numeric(df[c["valor_original_deuda"]],errors="coerce").fillna(0)
+    df[c["pago_actual"]]=pd.to_numeric(df[c["pago_actual"]],errors="coerce").fillna(0)
+    df[c["edad_consultora"]]=pd.to_numeric(df[c["edad_consultora"]],errors="coerce").fillna(0)
+    df[c["score_riesgo"]]=pd.to_numeric(df[c["score_riesgo"]],errors="coerce").fillna(0)
+
+    df["Temporalidad"]=df[c["dias_de_morosidad"]].apply(pac_temporalidad)
+    df["DiasParaMigrar"]=df.apply(lambda r: pac_dias_para_migrar(r[c["dias_de_morosidad"]], r["Temporalidad"]), axis=1)
+    df["RiesgoMigracion"]=df["DiasParaMigrar"].apply(pac_riesgo)
+
+    bins=[0,30,45,60,200]
+    labels=["18–30","31–45","46–60","61+"]
+    df["RangoEdad"]=pd.cut(df[c["edad_consultora"]],bins=bins,labels=labels,right=True,include_lowest=True)
+    df["RangoEdad"]=df["RangoEdad"].astype(str).replace("nan","Sin dato")
+
+    score_bins=[-1,20,40,60,80,1000]
+    score_labels=["Bajísimo","Bajo","Medio","Alto","Crítico"]
+    df["ScoreCategoria"]=pd.cut(df[c["score_riesgo"]],bins=score_bins,labels=score_labels)
+
+    return df
+
+def pac_export_html(df, encontradas):
+    import json
+    c=encontradas
+    total_consultoras=len(df)
+    saldo_total=float(df[c["saldo_insoluto"]].sum())
+    deuda_total=float(df[c["valor_original_deuda"]].sum())
+    pagos_total=float(df[c["pago_actual"]].sum())
+    pct_recuperacion=(pagos_total/deuda_total*100) if deuda_total else 0.0
+    criticas=df[df["RiesgoMigracion"]=="Crítico"]
+    n_criticas=len(criticas)
+    saldo_riesgo=float(criticas[c["saldo_insoluto"]].sum())
+
+    orden_t=["T1","T2","T3","T4","T5","T6","T7"]
+    saldo_por_t=df.groupby("Temporalidad")[c["saldo_insoluto"]].sum().reindex(orden_t).fillna(0)
+    cuentas_por_t=df["Temporalidad"].value_counts().reindex(orden_t).fillna(0)
+    orden_r=["Crítico","Alto","Preventivo","Estable"]
+    riesgo_dist=df["RiesgoMigracion"].value_counts().reindex(orden_r).fillna(0)
+    orden_edad=["18–30","31–45","46–60","61+"]
+    edad_dist=df["RangoEdad"].value_counts().reindex(orden_edad).fillna(0)
+    seg_saldo=df.groupby(c["segmentacion_rep"])[c["saldo_insoluto"]].sum().sort_values(ascending=False)
+
+    fecha_str=pd.Timestamp.now().strftime("%d/%m/%Y %H:%M")
+
+    html=f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8">
+<title>Plan de Acción Cobranza — NAtura</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+<style>
+  body{{font-family:'Segoe UI',system-ui,sans-serif;background:#f8fafc;color:{PAC_NAVY};margin:0;padding:24px;}}
+  h1{{font-size:1.6rem;margin-bottom:0;}}
+  .muted{{color:#64748b;font-size:0.85rem;}}
+  .kpis{{display:flex;flex-wrap:wrap;gap:14px;margin:20px 0;}}
+  .kpi{{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,0.08);padding:16px 20px;flex:1;min-width:180px;border-left:4px solid {PAC_TEAL};}}
+  .kpi b{{display:block;font-size:1.4rem;color:{PAC_NAVY};}}
+  .charts{{display:flex;flex-wrap:wrap;gap:20px;margin-top:20px;}}
+  .chart-box{{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,0.08);padding:16px;flex:1;min-width:320px;}}
+  @media(max-width:700px){{.kpis,.charts{{flex-direction:column;}}}}
+</style></head>
+<body>
+  <h1>📋 Plan de Acción Cobranza — NAtura</h1>
+  <div class="muted">Reporte generado el {fecha_str}</div>
+  <div class="kpis">
+    <div class="kpi">Consultoras en cartera<b>{total_consultoras:,}</b></div>
+    <div class="kpi">Saldo insoluto total<b>${saldo_total:,.0f}</b></div>
+    <div class="kpi">Deuda original total<b>${deuda_total:,.0f}</b></div>
+    <div class="kpi">Pagos registrados<b>${pagos_total:,.0f}</b></div>
+    <div class="kpi">% Recuperación<b>{pct_recuperacion:.1f}%</b></div>
+    <div class="kpi">Migran en ≤7 días<b>{n_criticas:,} (${saldo_riesgo:,.0f})</b></div>
+  </div>
+  <div class="charts">
+    <div class="chart-box"><canvas id="cSaldoT"></canvas></div>
+    <div class="chart-box"><canvas id="cRiesgo"></canvas></div>
+    <div class="chart-box"><canvas id="cCuentasT"></canvas></div>
+    <div class="chart-box"><canvas id="cEdad"></canvas></div>
+    <div class="chart-box"><canvas id="cSeg"></canvas></div>
+  </div>
+<script>
+const COLORS={{navy:"{PAC_NAVY}",teal:"{PAC_TEAL}",teal2:"{PAC_TEAL2}",amber:"{PAC_AMBER}",coral:"{PAC_CORAL}",red:"{PAC_RED}"}};
+new Chart(document.getElementById('cSaldoT'),{{type:'bar',data:{{labels:{json.dumps(orden_t)},
+  datasets:[{{label:'Saldo insoluto por temporalidad',data:{json.dumps([round(v,2) for v in saldo_por_t.tolist()])},backgroundColor:COLORS.teal}}]}},
+  options:{{plugins:{{title:{{display:true,text:'Saldo por Temporalidad'}}}}}}}});
+new Chart(document.getElementById('cRiesgo'),{{type:'doughnut',data:{{labels:{json.dumps(orden_r)},
+  datasets:[{{data:{json.dumps([int(v) for v in riesgo_dist.tolist()])},backgroundColor:[COLORS.red,COLORS.coral,COLORS.amber,COLORS.teal2]}}]}},
+  options:{{plugins:{{title:{{display:true,text:'Distribución de Riesgo de Migración'}}}}}}}});
+new Chart(document.getElementById('cCuentasT'),{{type:'bar',data:{{labels:{json.dumps(orden_t)},
+  datasets:[{{label:'Consultoras por temporalidad',data:{json.dumps([int(v) for v in cuentas_por_t.tolist()])},backgroundColor:COLORS.navy}}]}},
+  options:{{plugins:{{title:{{display:true,text:'Consultoras por Temporalidad'}}}}}}}});
+new Chart(document.getElementById('cEdad'),{{type:'doughnut',data:{{labels:{json.dumps(orden_edad)},
+  datasets:[{{data:{json.dumps([int(v) for v in edad_dist.tolist()])},backgroundColor:[COLORS.teal,COLORS.teal2,COLORS.amber,COLORS.coral]}}]}},
+  options:{{plugins:{{title:{{display:true,text:'Distribución por Edad'}}}}}}}});
+new Chart(document.getElementById('cSeg'),{{type:'bar',data:{{labels:{json.dumps(seg_saldo.index.tolist())},
+  datasets:[{{label:'Saldo por segmentación',data:{json.dumps([round(v,2) for v in seg_saldo.tolist()])},backgroundColor:COLORS.coral}}]}},
+  options:{{indexAxis:'y',plugins:{{title:{{display:true,text:'Saldo por Segmentación'}}}}}}}});
+</script>
+</body></html>"""
+    return html
+
+# ─────────────────────────────────────────────
 # DATOS SINTETICOS MAYO 2025 (fallback)
 # ─────────────────────────────────────────────
 ESTADOS   = ["CDMX","Edo. de México","Jalisco","Nuevo León","Puebla",
@@ -829,13 +993,14 @@ with col_h3:
 # ─────────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "1 · Cierre de Mes",
     "2 · Contactabilidad",
     "3 · Indicadores",
     "4 · Operación",
     "5 · Plan de Trabajo",
     "6 · Comparativo Cobranza",
+    "7 · Plan de Acción Cobranza",
 ])
 
 # ══════════════════════════════════════════════
@@ -1403,3 +1568,340 @@ with tab6:
                        f"(${r['promedio_diario']:,.0f}/día durante {r['dias_pendientes']:.0f} días restantes) "
                        f"**faltarían ${falta/1e6:.2f}M** para alcanzar el objetivo de ${r['total_objetivo']/1e6:.2f}M "
                        f"(cumplimiento actual {r['cumplimiento']:.1f}%).")
+
+# ══════════════════════════════════════════════
+# TAB 7 — PLAN DE ACCIÓN COBRANZA (módulo independiente)
+# ══════════════════════════════════════════════
+with tab7:
+    st.markdown('<div class="sec">📋 Plan de Acción Cobranza</div>', unsafe_allow_html=True)
+
+    if "pac_df" not in st.session_state:
+        st.session_state.pac_df = None
+        st.session_state.pac_filename = None
+        st.session_state.pac_loaded_at = None
+
+    # ── ESTADO A: sin archivo cargado ──
+    if st.session_state.pac_df is None:
+        st.markdown(
+            f"<div style='text-align:center;padding:40px 20px;background:{CARD};border-radius:16px;"
+            f"border:2px dashed #e2e8f0'>"
+            f"<div style='font-size:2.5rem'>📂</div>"
+            f"<div style='font-size:1.2rem;font-weight:700;color:{PAC_NAVY};margin:10px 0'>"
+            f"Sube el archivo de cartera para generar el Plan de Acción</div>"
+            f"<div style='color:#64748b;font-size:0.9rem;max-width:680px;margin:0 auto'>"
+            f"El archivo .xlsx debe contener las columnas: <b>id/folio</b>, <b>aging_de_morosidad</b>, "
+            f"<b>dias_de_morosidad</b>, <b>saldo_insoluto</b>, <b>valor_original_deuda</b>, <b>pago_actual</b>, "
+            f"<b>status_rep</b>, <b>edad_consultora</b>, <b>segmentacion_rep</b>, <b>division</b>, <b>zona</b>, "
+            f"<b>campana_numero</b>, <b>score_riesgo</b>, <b>numero_telefono_celular</b>, <b>correo_electronico</b>."
+            f"</div></div>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        f_pac = st.file_uploader("Selecciona archivo .xlsx", type=["xlsx"], key="pac_uploader")
+        if f_pac is not None:
+            try:
+                df_pac_raw = pd.read_excel(f_pac, engine="openpyxl")
+            except Exception as e:
+                st.error(f"No se pudo leer el archivo: {e}")
+                df_pac_raw = None
+            if df_pac_raw is not None:
+                encontradas, faltantes = pac_validar_columnas(df_pac_raw)
+                if faltantes:
+                    st.error("❌ Faltan columnas requeridas: " + ", ".join(faltantes))
+                else:
+                    st.session_state.pac_df = pac_procesar(df_pac_raw, encontradas)
+                    st.session_state.pac_cols = encontradas
+                    st.session_state.pac_filename = f_pac.name
+                    st.session_state.pac_loaded_at = pd.Timestamp.now()
+                    st.rerun()
+
+    # ── ESTADO B: archivo cargado y procesado ──
+    else:
+        df_pac = st.session_state.pac_df
+        c = st.session_state.pac_cols
+
+        col_h1, col_h2, col_h3 = st.columns([3, 1, 1])
+        with col_h1:
+            st.markdown(
+                f"**📄 {st.session_state.pac_filename}** &nbsp;|&nbsp; "
+                f"Cargado: {st.session_state.pac_loaded_at.strftime('%d/%m/%Y %H:%M')}"
+            )
+        with col_h2:
+            html_report = pac_export_html(df_pac, c)
+            st.download_button(
+                "⬇ Descargar reporte HTML", data=html_report,
+                file_name=f"plan_accion_natura_{pd.Timestamp.now().strftime('%Y%m%d')}.html",
+                mime="text/html", use_container_width=True,
+            )
+        with col_h3:
+            if st.button("🔄 Cambiar archivo", use_container_width=True):
+                st.session_state.pac_df = None
+                st.session_state.pac_filename = None
+                st.session_state.pac_loaded_at = None
+                st.rerun()
+
+        st.markdown("---")
+
+        orden_t = ["T1","T2","T3","T4","T5","T6","T7"]
+        orden_r = ["Crítico","Alto","Preventivo","Estable"]
+        orden_edad = ["18–30","31–45","46–60","61+"]
+
+        pac1, pac2, pac3, pac4, pac5, pac6 = st.tabs([
+            "1 · Resumen ejecutivo","2 · Matriz de riesgo","3 · Por temporalidad",
+            "4 · Plan operativo","5 · Reglas","6 · Zonas & División",
+        ])
+
+        # ── PAC TAB 1 — RESUMEN EJECUTIVO ──
+        with pac1:
+            total_consultoras = len(df_pac)
+            saldo_total  = df_pac[c["saldo_insoluto"]].sum()
+            deuda_total  = df_pac[c["valor_original_deuda"]].sum()
+            pagos_total  = df_pac[c["pago_actual"]].sum()
+            pct_recup    = (pagos_total/deuda_total*100) if deuda_total else 0.0
+            criticas     = df_pac[df_pac["RiesgoMigracion"]=="Crítico"]
+
+            k1,k2,k3,k4,k5,k6 = st.columns(6)
+            k1.metric("Consultoras en cartera", f"{total_consultoras:,}")
+            k2.metric("Saldo insoluto total", f"${saldo_total/1e6:.2f}M")
+            k3.metric("Deuda original total", f"${deuda_total/1e6:.2f}M")
+            k4.metric("Pagos registrados", f"${pagos_total/1e6:.2f}M")
+            k5.metric("% Recuperación", f"{pct_recup:.1f}%")
+            k6.metric("Migran ≤7 días", f"{len(criticas):,}", delta=f"${criticas[c['saldo_insoluto']].sum()/1e6:.2f}M en riesgo")
+
+            st.markdown("---")
+            cl, cm, cr = st.columns(3)
+            with cl:
+                st.markdown("**Saldo por Temporalidad**")
+                saldo_por_t = df_pac.groupby("Temporalidad")[c["saldo_insoluto"]].sum().reindex(orden_t).fillna(0)
+                fig = go.Figure(go.Bar(x=orden_t, y=saldo_por_t.values, marker_color=PAC_TEAL))
+                apply_layout(fig, height=300, yaxis=dict(tickprefix="$", tickformat=",.0f"))
+                st.plotly_chart(fig, use_container_width=True)
+            with cm:
+                st.markdown("**Riesgo de Migración**")
+                riesgo_dist = df_pac["RiesgoMigracion"].value_counts().reindex(orden_r).fillna(0)
+                fig2 = go.Figure(go.Pie(labels=orden_r, values=riesgo_dist.values, hole=0.55,
+                    marker_colors=[PAC_RED,PAC_CORAL,PAC_AMBER,PAC_TEAL2]))
+                apply_layout(fig2, height=300)
+                st.plotly_chart(fig2, use_container_width=True)
+            with cr:
+                st.markdown("**Consultoras por Temporalidad**")
+                cuentas_por_t = df_pac["Temporalidad"].value_counts().reindex(orden_t).fillna(0)
+                fig3 = go.Figure(go.Bar(x=orden_t, y=cuentas_por_t.values, marker_color=PAC_NAVY))
+                apply_layout(fig3, height=300)
+                st.plotly_chart(fig3, use_container_width=True)
+
+        # ── PAC TAB 2 — MATRIZ DE RIESGO ──
+        with pac2:
+            canales = {
+                "Crítico":   "Llamada diaria + Llamada de seguimiento + SMS cada 48h + Reminder diario",
+                "Alto":      "Llamada 3× semana + Llamada de seguimiento + SMS 2× semana",
+                "Preventivo":"Llamada 2× semana + SMS semanal + Reminder semanal",
+            }
+            cc1, cc2, cc3 = st.columns(3)
+            for col_obj, nivel, color in [(cc1,"Crítico",PAC_RED),(cc2,"Alto",PAC_CORAL),(cc3,"Preventivo",PAC_AMBER)]:
+                sub = df_pac[df_pac["RiesgoMigracion"]==nivel]
+                with col_obj:
+                    st.markdown(
+                        f"<div style='background:{CARD};border-radius:10px;padding:16px;border-left:4px solid {color}'>"
+                        f"<div style='font-weight:700;color:{color};font-size:1.1rem'>{nivel}</div>"
+                        f"<div style='font-size:1.6rem;font-weight:800;color:{PAC_NAVY}'>{len(sub):,} consultoras</div>"
+                        f"<div style='color:#64748b'>Saldo: ${sub[c['saldo_insoluto']].sum():,.0f}</div>"
+                        f"<div style='margin-top:8px;font-size:0.85rem;color:{PAC_NAVY}'><b>Canales:</b> {canales[nivel]}</div>"
+                        f"</div>", unsafe_allow_html=True)
+
+            st.markdown("---")
+            colA, colB = st.columns(2)
+            with colA:
+                st.markdown("**Riesgo × Rango de Edad**")
+                tab_re = df_pac[df_pac["RiesgoMigracion"].isin(["Crítico","Alto","Preventivo"])]
+                pvt = tab_re.pivot_table(index="RangoEdad", columns="RiesgoMigracion", aggfunc="size", fill_value=0)
+                pvt = pvt.reindex(orden_edad).fillna(0)
+                fig4 = go.Figure()
+                for nivel, color in [("Crítico",PAC_RED),("Alto",PAC_CORAL),("Preventivo",PAC_AMBER)]:
+                    if nivel in pvt.columns:
+                        fig4.add_trace(go.Bar(name=nivel, x=pvt.index, y=pvt[nivel], marker_color=color))
+                apply_layout(fig4, height=320, barmode="stack", legend=dict(orientation="h", y=1.15))
+                st.plotly_chart(fig4, use_container_width=True)
+            with colB:
+                st.markdown("**Score de Riesgo del Sistema**")
+                score_labels = ["Bajísimo","Bajo","Medio","Alto","Crítico"]
+                score_counts = df_pac["ScoreCategoria"].value_counts().reindex(score_labels).fillna(0)
+                sc1, sc2, sc3, sc4, sc5 = st.columns(5)
+                colores_score = [PAC_TEAL2,PAC_TEAL,PAC_AMBER,PAC_CORAL,PAC_RED]
+                for col_o, lbl, val, color in zip([sc1,sc2,sc3,sc4,sc5], score_labels, score_counts.values, colores_score):
+                    col_o.markdown(
+                        f"<div style='text-align:center;background:{CARD};border-radius:10px;padding:10px;border-top:3px solid {color}'>"
+                        f"<div style='font-size:0.75rem;color:#64748b'>{lbl}</div>"
+                        f"<div style='font-size:1.3rem;font-weight:800;color:{PAC_NAVY}'>{int(val):,}</div></div>",
+                        unsafe_allow_html=True)
+
+        # ── PAC TAB 3 — POR TEMPORALIDAD ──
+        with pac3:
+            filas = []
+            for t in orden_t:
+                sub = df_pac[df_pac["Temporalidad"]==t]
+                if len(sub)==0:
+                    filas.append([t,0,0.0,0.0,0.0,0.0,"—"])
+                    continue
+                riesgo_dom = sub["RiesgoMigracion"].value_counts().idxmax() if len(sub) else "—"
+                filas.append([
+                    t, len(sub), len(sub)/len(df_pac)*100,
+                    sub[c["dias_de_morosidad"]].mean(),
+                    sub[c["saldo_insoluto"]].sum(),
+                    sub[c["saldo_insoluto"]].sum()/df_pac[c["saldo_insoluto"]].sum()*100 if df_pac[c["saldo_insoluto"]].sum() else 0,
+                    riesgo_dom,
+                ])
+            tabla_t = pd.DataFrame(filas, columns=["Temporalidad","Consultoras","% del total","Días prom. mora",
+                                                     "Saldo insoluto","% del saldo","Riesgo dominante"])
+            st.dataframe(tabla_t.style.format({
+                "% del total":"{:.1f}%","Días prom. mora":"{:.0f}","Saldo insoluto":"${:,.0f}","% del saldo":"{:.1f}%",
+            }), use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+            colA, colB = st.columns(2)
+            with colA:
+                st.markdown("**Consultoras por Temporalidad**")
+                fig5 = go.Figure(go.Bar(x=tabla_t["Temporalidad"], y=tabla_t["Consultoras"], marker_color=PAC_TEAL))
+                apply_layout(fig5, height=300)
+                st.plotly_chart(fig5, use_container_width=True)
+            with colB:
+                st.markdown("**Saldo por Temporalidad**")
+                fig6 = go.Figure(go.Bar(x=tabla_t["Temporalidad"], y=tabla_t["Saldo insoluto"], marker_color=PAC_CORAL))
+                apply_layout(fig6, height=300, yaxis=dict(tickprefix="$", tickformat=",.0f"))
+                st.plotly_chart(fig6, use_container_width=True)
+
+            st.markdown("---")
+            st.markdown("**Segmentación**")
+            seg_tab = df_pac.groupby(c["segmentacion_rep"]).agg(
+                Consultoras=(c["id"] if "id" in c else c["saldo_insoluto"], "count"),
+                Saldo=(c["saldo_insoluto"], "sum"),
+            ).reset_index().rename(columns={c["segmentacion_rep"]:"Segmentación"}).sort_values("Saldo", ascending=False)
+            st.dataframe(seg_tab.style.format({"Saldo":"${:,.0f}"}), use_container_width=True, hide_index=True)
+
+        # ── PAC TAB 4 — PLAN OPERATIVO ──
+        with pac4:
+            n_crit = len(df_pac[df_pac["RiesgoMigracion"]=="Crítico"])
+            n_alto = len(df_pac[df_pac["RiesgoMigracion"]=="Alto"])
+            n_prev = len(df_pac[df_pac["RiesgoMigracion"]=="Preventivo"])
+
+            semana = st.radio("Semana", [
+                "Semana 1 · Identificación y prevención",
+                "Semana 2 · Conversión de promesas",
+                "Semana 3 · Contención de migración",
+                "Semana 4 · Cierre de mes",
+            ], horizontal=True)
+
+            planes = {
+                "Semana 1 · Identificación y prevención": [
+                    ("Lunes",   f"Identificar {n_prev:,} consultoras en riesgo Preventivo y armar lista de llamadas"),
+                    ("Martes",  f"Llamadas a {n_prev:,} consultoras preventivas"),
+                    ("Miércoles", f"SMS de recordatorio a {n_prev:,} consultoras preventivas"),
+                    ("Jueves",  f"Llamadas de seguimiento a {n_alto:,} consultoras de riesgo Alto"),
+                    ("Viernes", f"Revisión de promesas de pago generadas en la semana"),
+                    ("Sábado",  f"Cierre semanal y reporte de avance a supervisión"),
+                ],
+                "Semana 2 · Conversión de promesas": [
+                    ("Lunes",   f"Llamadas a {n_alto:,} consultoras de riesgo Alto para confirmar promesas"),
+                    ("Martes",  f"SMS de confirmación de pago a consultoras con promesa activa"),
+                    ("Miércoles", f"Llamadas de seguimiento a promesas no cumplidas"),
+                    ("Jueves",  f"Reminder a {n_prev:,} consultoras preventivas"),
+                    ("Viernes", f"Llamadas a {n_crit:,} consultoras críticas"),
+                    ("Sábado",  f"Reporte de conversión de promesas de la semana"),
+                ],
+                "Semana 3 · Contención de migración": [
+                    ("Lunes",   f"Llamada diaria a {n_crit:,} consultoras críticas (≤7 días para migrar)"),
+                    ("Martes",  f"SMS cada 48h a {n_crit:,} consultoras críticas"),
+                    ("Miércoles", f"Llamadas 3× semana a {n_alto:,} consultoras de riesgo Alto"),
+                    ("Jueves",  f"Reminder diario a consultoras críticas"),
+                    ("Viernes", f"Llamada de seguimiento a consultoras críticas y altas"),
+                    ("Sábado",  f"Reporte de contención: consultoras que evitaron migrar"),
+                ],
+                "Semana 4 · Cierre de mes": [
+                    ("Lunes",   f"Llamadas finales a {n_crit:,} consultoras críticas pendientes"),
+                    ("Martes",  f"SMS de último recordatorio a consultoras con saldo pendiente"),
+                    ("Miércoles", f"Llamadas de cierre a {n_alto:,} consultoras de riesgo Alto"),
+                    ("Jueves",  f"Consolidado de pagos registrados vs meta del mes"),
+                    ("Viernes", f"Llamadas de cierre a consultoras preventivas restantes"),
+                    ("Sábado",  f"Reporte ejecutivo de cierre de mes para gerencia"),
+                ],
+            }
+            for dia, accion in planes[semana]:
+                st.markdown(
+                    f"<div style='background:{CARD};border-radius:8px;padding:10px 16px;margin:5px 0;"
+                    f"display:flex;align-items:center;gap:12px'>"
+                    f"<span style='background:{PAC_TEAL};color:white;border-radius:6px;padding:3px 10px;"
+                    f"font-weight:700;font-size:0.8rem;min-width:90px;text-align:center'>{dia}</span>"
+                    f"<span style='color:{PAC_NAVY}'>{accion}</span></div>", unsafe_allow_html=True)
+            st.caption("Canal principal: llamadas telefónicas + SMS de apoyo. No se utiliza WhatsApp masivo.")
+
+        # ── PAC TAB 5 — REGLAS ──
+        with pac5:
+            st.markdown("**Reglas por edad → canal asignado**")
+            reglas_edad = pd.DataFrame([
+                ["18–30","Llamada + SMS — canal digital de respaldo"],
+                ["31–45","Llamada + SMS de seguimiento"],
+                ["46–60","Llamada prioritaria, reminder por SMS"],
+                ["61+",  "Llamada con horario flexible, sin SMS"],
+            ], columns=["Rango de edad","Canal asignado"])
+            st.dataframe(reglas_edad, use_container_width=True, hide_index=True)
+
+            st.markdown("**Reglas por estado → estrategia**")
+            reglas_estado = pd.DataFrame([
+                ["Activa","Gestión preventiva, mantener relación comercial"],
+                ["Morosa","Gestión de cobranza intensiva según nivel de riesgo"],
+            ], columns=["Estado","Estrategia"])
+            st.dataframe(reglas_estado, use_container_width=True, hide_index=True)
+
+            st.markdown("**Reglas por segmentación → prioridad**")
+            reglas_seg = pd.DataFrame([
+                ["Diamante","Prioridad máxima — gestión personalizada"],
+                ["Zafiro","Prioridad alta"],
+                ["Oro","Prioridad media-alta"],
+                ["Plata","Prioridad media"],
+                ["Bronce","Prioridad estándar"],
+            ], columns=["Segmentación","Prioridad"])
+            st.dataframe(reglas_seg, use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+            colA, colB = st.columns(2)
+            with colA:
+                st.markdown("**Distribución por Edad**")
+                edad_dist = df_pac["RangoEdad"].value_counts().reindex(orden_edad).fillna(0)
+                fig7 = go.Figure(go.Pie(labels=orden_edad, values=edad_dist.values, hole=0.55,
+                    marker_colors=[PAC_TEAL,PAC_TEAL2,PAC_AMBER,PAC_CORAL]))
+                apply_layout(fig7, height=300)
+                st.plotly_chart(fig7, use_container_width=True)
+            with colB:
+                st.markdown("**Saldo por Segmentación**")
+                seg_saldo = df_pac.groupby(c["segmentacion_rep"])[c["saldo_insoluto"]].sum().sort_values(ascending=False)
+                fig8 = go.Figure(go.Bar(x=seg_saldo.index, y=seg_saldo.values, marker_color=PAC_CORAL))
+                apply_layout(fig8, height=300, yaxis=dict(tickprefix="$", tickformat=",.0f"))
+                st.plotly_chart(fig8, use_container_width=True)
+
+        # ── PAC TAB 6 — ZONAS & DIVISIÓN ──
+        with pac6:
+            st.markdown("**Top 10 zonas por saldo**")
+            zonas = df_pac.groupby(c["zona"]).apply(lambda g: pd.Series({
+                "Saldo": g[c["saldo_insoluto"]].sum(),
+                "Críticas": (g["RiesgoMigracion"]=="Crítico").sum(),
+                "Total": len(g),
+            })).reset_index().rename(columns={c["zona"]:"Zona"})
+            zonas["% Crítico"] = (zonas["Críticas"]/zonas["Total"]*100).round(1)
+            zonas = zonas.sort_values("Saldo", ascending=False).head(10)
+            st.dataframe(zonas[["Zona","Saldo","Críticas","% Crítico"]].style.format({"Saldo":"${:,.0f}","% Crítico":"{:.1f}%"}),
+                         use_container_width=True, hide_index=True)
+
+            st.markdown("**Top 10 divisiones**")
+            divisiones = df_pac.groupby(c["division"])[c["saldo_insoluto"]].sum().sort_values(ascending=False).head(10)
+            div_tab = divisiones.reset_index()
+            div_tab.columns = ["División","Saldo"]
+            div_tab["% del total"] = (div_tab["Saldo"]/df_pac[c["saldo_insoluto"]].sum()*100).round(1)
+            st.dataframe(div_tab.style.format({"Saldo":"${:,.0f}","% del total":"{:.1f}%"}),
+                         use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+            st.markdown("**Cuentas críticas vs total por zona**")
+            zonas_chart = zonas.sort_values("Total", ascending=True)
+            fig9 = go.Figure()
+            fig9.add_trace(go.Bar(name="Total", x=zonas_chart["Total"], y=zonas_chart["Zona"], orientation="h", marker_color="#cbd5e1"))
+            fig9.add_trace(go.Bar(name="Críticas", x=zonas_chart["Críticas"], y=zonas_chart["Zona"], orientation="h", marker_color=PAC_RED))
+            apply_layout(fig9, height=380, barmode="overlay", legend=dict(orientation="h", y=1.1))
+            st.plotly_chart(fig9, use_container_width=True)
