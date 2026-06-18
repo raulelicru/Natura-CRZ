@@ -8,6 +8,7 @@ import random
 import numpy as np
 import pandas as pd
 import openpyxl
+from openpyxl.utils import column_index_from_string
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
@@ -167,17 +168,31 @@ PAC_COLS_REQUERIDAS = [
 
 PAC_UMBRALES = {"T1":30,"T2":60,"T3":90,"T4":120,"T5":150,"T6":180,"T7":None}
 
-def pac_validar_columnas(df):
+PAC_PAGO_LETRA = "CF"  # columna de Excel donde vive el pago (independiente del encabezado)
+
+def pac_col_por_letra(df, letra=PAC_PAGO_LETRA):
+    """Devuelve el nombre de la columna del DataFrame en la posición de la letra de Excel dada."""
+    idx = column_index_from_string(letra) - 1
+    if 0 <= idx < len(df.columns):
+        return df.columns[idx]
+    return None
+
+def pac_validar_columnas(df, pago_letra=PAC_PAGO_LETRA):
     faltantes=[]
     encontradas={}
     cols_lower={c.lower().strip():c for c in df.columns}
+    col_pago_letra = pac_col_por_letra(df, pago_letra)
     for opciones in PAC_COLS_REQUERIDAS:
+        clave = opciones[0]
+        if clave == "pago_actual" and col_pago_letra is not None:
+            encontradas[clave] = col_pago_letra
+            continue
         encontrada=None
         for o in opciones:
             if o in cols_lower:
                 encontrada=cols_lower[o]; break
         if encontrada:
-            encontradas[opciones[0]]=encontrada
+            encontradas[clave]=encontrada
         else:
             faltantes.append(" / ".join(opciones))
     return encontradas, faltantes
@@ -227,6 +242,34 @@ def pac_procesar(df_raw, encontradas):
     df["ScoreCategoria"]=pd.cut(df[c["score_riesgo"]],bins=score_bins,labels=score_labels)
 
     return df
+
+def pac_recuperacion_diaria(snap_prev, snap_cur):
+    """Compara dos snapshots (dict con 'df' y 'cols') y calcula la recuperación generada
+    entre la fecha anterior y la actual, cruzando por id y comparando la columna de pago."""
+    df_p, c_p = snap_prev["df"], snap_prev["cols"]
+    df_c, c_c = snap_cur["df"], snap_cur["cols"]
+    id_p, id_c = c_p["id"], c_c["id"]
+
+    izq = df_c[[id_c, c_c["pago_actual"], "Temporalidad", "RiesgoMigracion", "RangoEdad",
+                c_c["segmentacion_rep"], c_c["status_rep"], c_c["saldo_insoluto"]]].copy()
+    izq.columns = ["id","pago_cur","Temporalidad","RiesgoMigracion","RangoEdad","Segmentacion","Estado","SaldoInsoluto"]
+
+    der = df_p[[id_p, c_p["pago_actual"]]].copy()
+    der.columns = ["id","pago_prev"]
+
+    merged = izq.merge(der, on="id", how="left")
+    merged["pago_prev"] = merged["pago_prev"].fillna(0)
+    merged["Recuperado"] = (merged["pago_cur"] - merged["pago_prev"]).clip(lower=0)
+    return merged
+
+def pac_resumen_por(merged, dim):
+    g = merged.groupby(dim).agg(
+        Recuperado=("Recuperado","sum"),
+        Consultoras=("id","count"),
+        ConRecuperacion=("Recuperado", lambda s: (s>0).sum()),
+    ).reset_index()
+    g["% con recuperación"] = (g["ConRecuperacion"]/g["Consultoras"]*100).round(1)
+    return g.sort_values("Recuperado", ascending=False)
 
 def pac_export_html(df, encontradas):
     import json
@@ -1579,6 +1622,7 @@ with tab7:
         st.session_state.pac_df = None
         st.session_state.pac_filename = None
         st.session_state.pac_loaded_at = None
+        st.session_state.pac_history = []  # lista de snapshots: {fecha, df, cols, filename}
 
     # ── ESTADO A: sin archivo cargado ──
     if st.session_state.pac_df is None:
@@ -1590,11 +1634,13 @@ with tab7:
             f"Sube el archivo de cartera para generar el Plan de Acción</div>"
             f"<div style='color:#64748b;font-size:0.9rem;max-width:680px;margin:0 auto'>"
             f"El archivo .xlsx debe contener las columnas: <b>id/folio</b>, <b>aging_de_morosidad</b>, "
-            f"<b>dias_de_morosidad</b>, <b>saldo_insoluto</b>, <b>valor_original_deuda</b>, <b>pago_actual</b>, "
+            f"<b>dias_de_morosidad</b>, <b>saldo_insoluto</b>, <b>valor_original_deuda</b>, <b>pago_actual</b> "
+            f"(se toma de la columna <b>{PAC_PAGO_LETRA}</b> del Excel), "
             f"<b>status_rep</b>, <b>edad_consultora</b>, <b>segmentacion_rep</b>, <b>division</b>, <b>zona</b>, "
             f"<b>campana_numero</b>, <b>score_riesgo</b>, <b>numero_telefono_celular</b>, <b>correo_electronico</b>."
             f"</div></div>", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
+        fecha_corte = st.date_input("Fecha de corte de este archivo", value=pd.Timestamp.now().date(), key="pac_fecha_corte")
         f_pac = st.file_uploader("Selecciona archivo .xlsx", type=["xlsx"], key="pac_uploader")
         if f_pac is not None:
             try:
@@ -1607,11 +1653,21 @@ with tab7:
                 if faltantes:
                     st.error("❌ Faltan columnas requeridas: " + ", ".join(faltantes))
                 else:
-                    st.session_state.pac_df = pac_procesar(df_pac_raw, encontradas)
+                    df_proc = pac_procesar(df_pac_raw, encontradas)
+                    st.session_state.pac_df = df_proc
                     st.session_state.pac_cols = encontradas
                     st.session_state.pac_filename = f_pac.name
                     st.session_state.pac_loaded_at = pd.Timestamp.now()
+                    historial = [h for h in st.session_state.pac_history if h["fecha"] != fecha_corte]
+                    historial.append({"fecha": fecha_corte, "df": df_proc, "cols": encontradas, "filename": f_pac.name})
+                    st.session_state.pac_history = sorted(historial, key=lambda h: h["fecha"])
                     st.rerun()
+        if st.session_state.pac_history:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.caption(f"Cortes guardados en esta sesión: {', '.join(h['fecha'].strftime('%d/%m') for h in st.session_state.pac_history)}")
+            if st.button("🗑 Borrar historial de cortes"):
+                st.session_state.pac_history = []
+                st.rerun()
 
     # ── ESTADO B: archivo cargado y procesado ──
     else:
@@ -1622,7 +1678,8 @@ with tab7:
         with col_h1:
             st.markdown(
                 f"**📄 {st.session_state.pac_filename}** &nbsp;|&nbsp; "
-                f"Cargado: {st.session_state.pac_loaded_at.strftime('%d/%m/%Y %H:%M')}"
+                f"Cargado: {st.session_state.pac_loaded_at.strftime('%d/%m/%Y %H:%M')} "
+                f"&nbsp;|&nbsp; Cortes en historial: {len(st.session_state.pac_history)}"
             )
         with col_h2:
             html_report = pac_export_html(df_pac, c)
@@ -1632,7 +1689,7 @@ with tab7:
                 mime="text/html", use_container_width=True,
             )
         with col_h3:
-            if st.button("🔄 Cambiar archivo", use_container_width=True):
+            if st.button("🔄 Cargar nuevo corte", use_container_width=True):
                 st.session_state.pac_df = None
                 st.session_state.pac_filename = None
                 st.session_state.pac_loaded_at = None
@@ -1644,9 +1701,9 @@ with tab7:
         orden_r = ["Crítico","Alto","Preventivo","Estable"]
         orden_edad = ["18–30","31–45","46–60","61+"]
 
-        pac1, pac2, pac3, pac4, pac5, pac6 = st.tabs([
+        pac1, pac2, pac3, pac4, pac5, pac6, pac7 = st.tabs([
             "1 · Resumen ejecutivo","2 · Matriz de riesgo","3 · Por temporalidad",
-            "4 · Plan operativo","5 · Reglas","6 · Zonas & División",
+            "4 · Plan operativo","5 · Reglas","6 · Zonas & División","7 · Seguimiento diario",
         ])
 
         # ── PAC TAB 1 — RESUMEN EJECUTIVO ──
@@ -1905,3 +1962,100 @@ with tab7:
             fig9.add_trace(go.Bar(name="Críticas", x=zonas_chart["Críticas"], y=zonas_chart["Zona"], orientation="h", marker_color=PAC_RED))
             apply_layout(fig9, height=380, barmode="overlay", legend=dict(orientation="h", y=1.1))
             st.plotly_chart(fig9, use_container_width=True)
+
+        # ── PAC TAB 7 — SEGUIMIENTO DIARIO DE RECUPERACIÓN ──
+        with pac7:
+            hist = sorted(st.session_state.pac_history, key=lambda h: h["fecha"])
+            if len(hist) < 2:
+                st.info(
+                    "Sube al menos **dos cortes** (en distintas fechas) para medir cuánto se recuperó "
+                    "día a día. Usa el campo **'Fecha de corte'** al cargar cada archivo y luego "
+                    "'🔄 Cargar nuevo corte' para agregar el siguiente día sin perder el historial."
+                )
+            else:
+                snap_prev, snap_cur = hist[-2], hist[-1]
+                merged = pac_recuperacion_diaria(snap_prev, snap_cur)
+
+                recuperado_dia = merged["Recuperado"].sum()
+                n_con_recup = (merged["Recuperado"] > 0).sum()
+                n_criticas_sin_recup = ((merged["RiesgoMigracion"]=="Crítico") & (merged["Recuperado"]==0)).sum()
+
+                st.markdown(f"**Recuperación del {snap_prev['fecha'].strftime('%d/%m')} al {snap_cur['fecha'].strftime('%d/%m')}**")
+                k1,k2,k3,k4 = st.columns(4)
+                k1.metric("Recuperado en el periodo", f"${recuperado_dia/1e6:.2f}M")
+                k2.metric("Consultoras con recuperación", f"{n_con_recup:,} de {len(merged):,}")
+                k3.metric("% de cartera que recuperó", f"{n_con_recup/len(merged)*100:.1f}%")
+                k4.metric("Críticas SIN recuperación", f"{n_criticas_sin_recup:,}", delta="requieren acción", delta_color="inverse")
+
+                st.markdown("---")
+                cdim1, cdim2 = st.columns(2)
+                with cdim1:
+                    st.markdown("**Recuperación por Temporalidad**")
+                    rt = pac_resumen_por(merged, "Temporalidad").set_index("Temporalidad").reindex(orden_t).fillna(0).reset_index()
+                    fig_t = go.Figure(go.Bar(x=rt["Temporalidad"], y=rt["Recuperado"], marker_color=PAC_TEAL2))
+                    apply_layout(fig_t, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
+                    st.plotly_chart(fig_t, use_container_width=True)
+                with cdim2:
+                    st.markdown("**Recuperación por Segmentación (camino de crecimiento)**")
+                    rs = pac_resumen_por(merged, "Segmentacion")
+                    fig_s = go.Figure(go.Bar(x=rs["Segmentacion"], y=rs["Recuperado"], marker_color=PAC_AMBER))
+                    apply_layout(fig_s, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
+                    st.plotly_chart(fig_s, use_container_width=True)
+
+                cdim3, cdim4 = st.columns(2)
+                with cdim3:
+                    st.markdown("**Recuperación por Estado (A/M)**")
+                    re_ = pac_resumen_por(merged, "Estado")
+                    fig_e = go.Figure(go.Bar(x=re_["Estado"], y=re_["Recuperado"], marker_color=PAC_TEAL))
+                    apply_layout(fig_e, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
+                    st.plotly_chart(fig_e, use_container_width=True)
+                with cdim4:
+                    st.markdown("**Recuperación por Edad**")
+                    ra = pac_resumen_por(merged, "RangoEdad").set_index("RangoEdad").reindex(orden_edad).fillna(0).reset_index()
+                    fig_a = go.Figure(go.Bar(x=ra["RangoEdad"], y=ra["Recuperado"], marker_color=PAC_CORAL))
+                    apply_layout(fig_a, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
+                    st.plotly_chart(fig_a, use_container_width=True)
+
+                st.markdown("---")
+                st.markdown("**Riesgo de migración vs. recuperación — dónde actuar**")
+                riesgo_tab = pac_resumen_por(merged, "RiesgoMigracion").set_index("RiesgoMigracion").reindex(orden_r).fillna(0).reset_index()
+                st.dataframe(
+                    riesgo_tab.rename(columns={"RiesgoMigracion":"Riesgo"}).style.format(
+                        {"Recuperado":"${:,.0f}","% con recuperación":"{:.1f}%"}),
+                    use_container_width=True, hide_index=True,
+                )
+
+                acciones_riesgo = {
+                    "Crítico":   "Llamada diaria + Llamada de seguimiento + SMS cada 48h + Reminder diario",
+                    "Alto":      "Llamada 3× por semana + Llamada de seguimiento + SMS 2× por semana",
+                    "Preventivo":"Llamada 2× por semana + SMS semanal + Reminder semanal",
+                    "Estable":   "Monitoreo quincenal, sin contacto intensivo",
+                }
+                sin_recup_por_riesgo = merged[merged["Recuperado"]==0]["RiesgoMigracion"].value_counts().reindex(orden_r).fillna(0)
+                st.markdown("**Acción recomendada para los grupos que aún no generan recuperación**")
+                for riesgo in ["Crítico","Alto","Preventivo"]:
+                    n_sin = int(sin_recup_por_riesgo.get(riesgo, 0))
+                    if n_sin > 0:
+                        st.markdown(
+                            f"<div style='background:{CARD};border-left:4px solid {PAC_RED if riesgo=='Crítico' else (PAC_CORAL if riesgo=='Alto' else PAC_AMBER)};"
+                            f"border-radius:10px;padding:12px 16px;margin-bottom:8px'>"
+                            f"<b>{riesgo}</b> — {n_sin:,} consultoras sin recuperación todavía. "
+                            f"Acción: {acciones_riesgo[riesgo]}.</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                st.markdown("---")
+                st.markdown("**Historial de cortes y recuperación acumulada**")
+                filas_hist = []
+                for i in range(1, len(hist)):
+                    m = pac_recuperacion_diaria(hist[i-1], hist[i])
+                    filas_hist.append({
+                        "Fecha": hist[i]["fecha"],
+                        "Recuperado en el periodo": m["Recuperado"].sum(),
+                        "Consultoras con recuperación": (m["Recuperado"]>0).sum(),
+                    })
+                df_hist = pd.DataFrame(filas_hist)
+                st.dataframe(df_hist.style.format({"Recuperado en el periodo":"${:,.0f}"}), use_container_width=True, hide_index=True)
+                fig_hist = go.Figure(go.Bar(x=df_hist["Fecha"].astype(str), y=df_hist["Recuperado en el periodo"], marker_color=PAC_TEAL))
+                apply_layout(fig_hist, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
+                st.plotly_chart(fig_hist, use_container_width=True)
