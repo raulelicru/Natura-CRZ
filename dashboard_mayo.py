@@ -169,6 +169,7 @@ PAC_COLS_REQUERIDAS = [
 PAC_UMBRALES = {"T1":30,"T2":60,"T3":90,"T4":120,"T5":150,"T6":180,"T7":None}
 
 PAC_PAGO_LETRA = "CF"  # columna de Excel donde vive el pago (independiente del encabezado)
+PAC_SALDO_LETRA = "I"  # columna de Excel donde vive el valor_saldo_deuda (independiente del encabezado)
 
 def pac_col_por_letra(df, letra=PAC_PAGO_LETRA):
     """Devuelve el nombre de la columna del DataFrame en la posición de la letra de Excel dada."""
@@ -177,15 +178,19 @@ def pac_col_por_letra(df, letra=PAC_PAGO_LETRA):
         return df.columns[idx]
     return None
 
-def pac_validar_columnas(df, pago_letra=PAC_PAGO_LETRA):
+def pac_validar_columnas(df, pago_letra=PAC_PAGO_LETRA, saldo_letra=PAC_SALDO_LETRA):
     faltantes=[]
     encontradas={}
     cols_lower={c.lower().strip():c for c in df.columns}
     col_pago_letra = pac_col_por_letra(df, pago_letra)
+    col_saldo_letra = pac_col_por_letra(df, saldo_letra)
     for opciones in PAC_COLS_REQUERIDAS:
         clave = opciones[0]
         if clave == "pago_actual" and col_pago_letra is not None:
             encontradas[clave] = col_pago_letra
+            continue
+        if clave == "saldo_insoluto" and col_saldo_letra is not None:
+            encontradas[clave] = col_saldo_letra
             continue
         encontrada=None
         for o in opciones:
@@ -1784,7 +1789,7 @@ with tab7:
             k2.metric("Saldo insoluto total", f"${saldo_total/1e6:.2f}M")
             k3.metric("Deuda original total", f"${deuda_total/1e6:.2f}M")
             k4.metric("Pagos registrados", f"${pagos_total/1e6:.2f}M")
-            k5.metric("% Recuperación", f"{pct_recup:.1f}%")
+            k5.metric("% de recuperación general", f"{pct_recup:.1f}%")
             k6.metric("Migran ≤7 días", f"{len(criticas):,}", delta=f"${criticas[c['saldo_insoluto']].sum()/1e6:.2f}M en riesgo")
 
             st.markdown("---")
@@ -1871,9 +1876,9 @@ with tab7:
                     riesgo_dom,
                 ])
             tabla_t = pd.DataFrame(filas, columns=["Temporalidad","Consultoras","% del total","Días prom. mora",
-                                                     "Saldo insoluto","% del saldo","Riesgo dominante"])
+                                                     "Valor saldo","% del saldo","Riesgo dominante"])
             st.dataframe(tabla_t.style.format({
-                "% del total":"{:.1f}%","Días prom. mora":"{:.0f}","Saldo insoluto":"${:,.0f}","% del saldo":"{:.1f}%",
+                "% del total":"{:.1f}%","Días prom. mora":"{:.0f}","Valor saldo":"${:,.0f}","% del saldo":"{:.1f}%",
             }), use_container_width=True, hide_index=True)
 
             st.markdown("---")
@@ -1885,7 +1890,7 @@ with tab7:
                 st.plotly_chart(fig5, use_container_width=True)
             with colB:
                 st.markdown("**Saldo por Temporalidad**")
-                fig6 = go.Figure(go.Bar(x=tabla_t["Temporalidad"], y=tabla_t["Saldo insoluto"], marker_color=PAC_CORAL))
+                fig6 = go.Figure(go.Bar(x=tabla_t["Temporalidad"], y=tabla_t["Valor saldo"], marker_color=PAC_CORAL))
                 apply_layout(fig6, height=300, yaxis=dict(tickprefix="$", tickformat=",.0f"))
                 st.plotly_chart(fig6, use_container_width=True)
 
