@@ -246,8 +246,9 @@ def seg_recuperacion(snap_prev, snap_cur):
             cols_izq.append(clave); rename_izq[clave]=clave
     if "segmentacion_rep" in c_c:
         cols_izq.append(c_c["segmentacion_rep"]); rename_izq[c_c["segmentacion_rep"]]="Segmentacion"
-    if "status_rep" in c_c:
-        cols_izq.append(c_c["status_rep"]); rename_izq[c_c["status_rep"]]="Estado"
+    col_estado_geo = pac_col_por_letra(df_c, PAC_ESTADO_GEO_LETRA)
+    if col_estado_geo is not None:
+        cols_izq.append(col_estado_geo); rename_izq[col_estado_geo]="Estado"
 
     izq = df_c[cols_izq].copy().rename(columns=rename_izq)
     der = df_p[[c_p["id"], c_p["pago_actual"]]].copy().rename(columns={c_p["id"]:"id", c_p["pago_actual"]:"pago_prev"})
@@ -1701,7 +1702,7 @@ with tab7:
 
                 cdim3, cdim4 = st.columns(2)
                 with cdim3:
-                    st.markdown("**Recuperación por Estado (A/M)**")
+                    st.markdown("**Recuperación por Estado**")
                     re_ = seg_resumen_por(merged, "Estado")
                     fig_e = go.Figure(go.Bar(x=re_["Estado"], y=re_["Recuperado"], marker_color=PAC_TEAL))
                     apply_layout(fig_e, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
