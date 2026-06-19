@@ -1663,97 +1663,101 @@ with tab7:
             apply_layout(fig9, height=380, barmode="overlay", legend=dict(orientation="h", y=1.1))
             st.plotly_chart(fig9, use_container_width=True)
         with pac7:
-            hist = sorted(st.session_state.pac_history, key=lambda h: h["fecha"])
-            if len(hist) < 2:
-                st.info(
-                    "Sube al menos **dos cortes** (en distintas fechas) para medir cuánto se recuperó "
-                    "día a día. Usa el campo **'Fecha de corte'** al cargar cada archivo y luego "
-                    "'🔄 Cargar nuevo corte' para agregar el siguiente día sin perder el historial."
-                )
-            else:
-                snap_prev, snap_cur = hist[-2], hist[-1]
-                merged = seg_recuperacion(snap_prev, snap_cur)
+            st.caption(
+                "El pago (columna **CF**) es el acumulado de pagos del mes a la fecha del corte cargado, "
+                "por lo que la recuperación se calcula directamente sobre ese acumulado — no es necesario subir más de un corte."
+            )
+            col_pago = c["pago_actual"]
+            recuperado_total = df_pac[col_pago].sum()
+            n_con_recup = (df_pac[col_pago] > 0).sum()
+            n_criticas_sin_recup = ((df_pac["RiesgoMigracion"]=="Crítico") & (df_pac[col_pago]==0)).sum()
 
-                recuperado_periodo = merged["Recuperado"].sum()
-                n_con_recup = (merged["Recuperado"] > 0).sum()
-                n_criticas_sin_recup = ((merged["RiesgoMigracion"]=="Crítico") & (merged["Recuperado"]==0)).sum()
+            st.markdown("**Recuperación acumulada del mes**")
+            k1,k2,k3,k4 = st.columns(4)
+            k1.metric("Recuperado acumulado", f"${recuperado_total/1e6:.2f}M")
+            k2.metric("Consultoras con recuperación", f"{n_con_recup:,} de {len(df_pac):,}")
+            k3.metric("% de cartera que recuperó", f"{n_con_recup/len(df_pac)*100:.1f}%" if len(df_pac) else "0%")
+            k4.metric("Críticas SIN recuperación", f"{n_criticas_sin_recup:,}", delta="requieren acción", delta_color="inverse")
 
-                st.markdown(f"**Recuperación del {snap_prev['fecha'].strftime('%d/%m')} al {snap_cur['fecha'].strftime('%d/%m')}**")
-                k1,k2,k3,k4 = st.columns(4)
-                k1.metric("Recuperado en el periodo", f"${recuperado_periodo/1e6:.2f}M")
-                k2.metric("Consultoras con recuperación", f"{n_con_recup:,} de {len(merged):,}")
-                k3.metric("% de cartera que recuperó", f"{n_con_recup/len(merged)*100:.1f}%")
-                k4.metric("Críticas SIN recuperación", f"{n_criticas_sin_recup:,}", delta="requieren acción", delta_color="inverse")
+            st.markdown("---")
+            cdim1, cdim2 = st.columns(2)
+            with cdim1:
+                st.markdown("**Recuperación por Temporalidad**")
+                rt = df_pac.groupby("Temporalidad")[col_pago].sum().reindex(orden_t).fillna(0)
+                fig_t = go.Figure(go.Bar(x=orden_t, y=rt.values, marker_color=PAC_TEAL2))
+                apply_layout(fig_t, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
+                st.plotly_chart(fig_t, use_container_width=True)
+            with cdim2:
+                st.markdown("**Recuperación por Segmentación (camino de crecimiento)**")
+                rs = df_pac.groupby(c["segmentacion_rep"])[col_pago].sum().sort_values(ascending=False)
+                fig_s = go.Figure(go.Bar(x=rs.index, y=rs.values, marker_color=PAC_AMBER))
+                apply_layout(fig_s, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
+                st.plotly_chart(fig_s, use_container_width=True)
 
-                st.markdown("---")
-                cdim1, cdim2 = st.columns(2)
-                with cdim1:
-                    st.markdown("**Recuperación por Temporalidad**")
-                    rt = seg_resumen_por(merged, "Temporalidad").set_index("Temporalidad").reindex(orden_t).fillna(0).reset_index()
-                    fig_t = go.Figure(go.Bar(x=rt["Temporalidad"], y=rt["Recuperado"], marker_color=PAC_TEAL2))
-                    apply_layout(fig_t, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
-                    st.plotly_chart(fig_t, use_container_width=True)
-                with cdim2:
-                    st.markdown("**Recuperación por Segmentación (camino de crecimiento)**")
-                    rs = seg_resumen_por(merged, "Segmentacion")
-                    fig_s = go.Figure(go.Bar(x=rs["Segmentacion"], y=rs["Recuperado"], marker_color=PAC_AMBER))
-                    apply_layout(fig_s, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
-                    st.plotly_chart(fig_s, use_container_width=True)
-
-                cdim3, cdim4 = st.columns(2)
-                with cdim3:
-                    st.markdown("**Recuperación por Estado**")
-                    re_ = seg_resumen_por(merged, "Estado")
-                    fig_e = go.Figure(go.Bar(x=re_["Estado"], y=re_["Recuperado"], marker_color=PAC_TEAL))
+            cdim3, cdim4 = st.columns(2)
+            with cdim3:
+                st.markdown("**Recuperación por Estado**")
+                col_estado_geo7 = pac_col_por_letra(df_pac, PAC_ESTADO_GEO_LETRA)
+                if col_estado_geo7 is not None:
+                    re_ = df_pac.groupby(col_estado_geo7)[col_pago].sum().sort_values(ascending=False).head(15)
+                    fig_e = go.Figure(go.Bar(x=re_.index, y=re_.values, marker_color=PAC_TEAL))
                     apply_layout(fig_e, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
                     st.plotly_chart(fig_e, use_container_width=True)
-                with cdim4:
-                    st.markdown("**Recuperación por Edad**")
-                    ra = seg_resumen_por(merged, "RangoEdad").set_index("RangoEdad").reindex(orden_edad).fillna(0).reset_index()
-                    fig_a = go.Figure(go.Bar(x=ra["RangoEdad"], y=ra["Recuperado"], marker_color=PAC_CORAL))
-                    apply_layout(fig_a, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
-                    st.plotly_chart(fig_a, use_container_width=True)
+                else:
+                    st.caption(f"Sube la columna **{PAC_ESTADO_GEO_LETRA}** (direccion_de_residencia_estado) para ver este desglose.")
+            with cdim4:
+                st.markdown("**Recuperación por Edad**")
+                ra = df_pac.groupby("RangoEdad")[col_pago].sum().reindex(orden_edad).fillna(0)
+                fig_a = go.Figure(go.Bar(x=orden_edad, y=ra.values, marker_color=PAC_CORAL))
+                apply_layout(fig_a, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
+                st.plotly_chart(fig_a, use_container_width=True)
 
+            st.markdown("---")
+            st.markdown("**Riesgo de migración vs. recuperación — dónde actuar**")
+            riesgo_g = df_pac.groupby("RiesgoMigracion").agg(
+                Recuperado=(col_pago,"sum"),
+                Consultoras=(col_pago,"count"),
+                ConRecuperacion=(col_pago, lambda s: (s>0).sum()),
+            ).reindex(orden_r).fillna(0)
+            riesgo_g["% con recuperación"] = (riesgo_g["ConRecuperacion"]/riesgo_g["Consultoras"]*100).round(1)
+            riesgo_tab = riesgo_g.reset_index().rename(columns={"RiesgoMigracion":"Riesgo"})[["Riesgo","Recuperado","Consultoras","% con recuperación"]]
+            st.dataframe(
+                riesgo_tab.style.format({"Recuperado":"${:,.0f}","% con recuperación":"{:.1f}%"}),
+                use_container_width=True, hide_index=True,
+            )
+
+            acciones_riesgo = {
+                "Crítico":   "Llamada diaria + Llamada de seguimiento + SMS cada 48h + Reminder diario",
+                "Alto":      "Llamada 3× por semana + Llamada de seguimiento + SMS 2× por semana",
+                "Preventivo":"Llamada 2× por semana + SMS semanal + Reminder semanal",
+                "Estable":   "Monitoreo quincenal, sin contacto intensivo",
+            }
+            sin_recup_por_riesgo = df_pac[df_pac[col_pago]==0]["RiesgoMigracion"].value_counts().reindex(orden_r).fillna(0)
+            st.markdown("**Acción recomendada para los grupos que aún no generan recuperación**")
+            for riesgo in ["Crítico","Alto","Preventivo"]:
+                n_sin = int(sin_recup_por_riesgo.get(riesgo, 0))
+                if n_sin > 0:
+                    st.markdown(
+                        f"<div style='background:{CARD};border-left:4px solid {PAC_RED if riesgo=='Crítico' else (PAC_CORAL if riesgo=='Alto' else PAC_AMBER)};"
+                        f"border-radius:10px;padding:12px 16px;margin-bottom:8px'>"
+                        f"<b>{riesgo}</b> — {n_sin:,} consultoras sin recuperación todavía. "
+                        f"Acción: {acciones_riesgo[riesgo]}.</div>",
+                        unsafe_allow_html=True,
+                    )
+
+            hist = sorted(st.session_state.pac_history, key=lambda h: h["fecha"])
+            if len(hist) >= 2:
                 st.markdown("---")
-                st.markdown("**Riesgo de migración vs. recuperación — dónde actuar**")
-                riesgo_tab = seg_resumen_por(merged, "RiesgoMigracion").set_index("RiesgoMigracion").reindex(orden_r).fillna(0).reset_index()
-                st.dataframe(
-                    riesgo_tab.rename(columns={"RiesgoMigracion":"Riesgo"}).style.format(
-                        {"Recuperado":"${:,.0f}","% con recuperación":"{:.1f}%"}),
-                    use_container_width=True, hide_index=True,
-                )
-
-                acciones_riesgo = {
-                    "Crítico":   "Llamada diaria + Llamada de seguimiento + SMS cada 48h + Reminder diario",
-                    "Alto":      "Llamada 3× por semana + Llamada de seguimiento + SMS 2× por semana",
-                    "Preventivo":"Llamada 2× por semana + SMS semanal + Reminder semanal",
-                    "Estable":   "Monitoreo quincenal, sin contacto intensivo",
-                }
-                sin_recup_por_riesgo = merged[merged["Recuperado"]==0]["RiesgoMigracion"].value_counts().reindex(orden_r).fillna(0)
-                st.markdown("**Acción recomendada para los grupos que aún no generan recuperación**")
-                for riesgo in ["Crítico","Alto","Preventivo"]:
-                    n_sin = int(sin_recup_por_riesgo.get(riesgo, 0))
-                    if n_sin > 0:
-                        st.markdown(
-                            f"<div style='background:{CARD};border-left:4px solid {PAC_RED if riesgo=='Crítico' else (PAC_CORAL if riesgo=='Alto' else PAC_AMBER)};"
-                            f"border-radius:10px;padding:12px 16px;margin-bottom:8px'>"
-                            f"<b>{riesgo}</b> — {n_sin:,} consultoras sin recuperación todavía. "
-                            f"Acción: {acciones_riesgo[riesgo]}.</div>",
-                            unsafe_allow_html=True,
-                        )
-
-                st.markdown("---")
-                st.markdown("**Historial de cortes y recuperación acumulada**")
+                st.markdown("**Evolución del acumulado entre cortes**")
                 filas_hist = []
-                for i in range(1, len(hist)):
-                    m = seg_recuperacion(hist[i-1], hist[i])
+                for h in hist:
                     filas_hist.append({
-                        "Fecha": hist[i]["fecha"],
-                        "Recuperado en el periodo": m["Recuperado"].sum(),
-                        "Consultoras con recuperación": (m["Recuperado"]>0).sum(),
+                        "Fecha": h["fecha"],
+                        "Recuperado acumulado": h["df"][h["cols"]["pago_actual"]].sum(),
+                        "Consultoras con recuperación": (h["df"][h["cols"]["pago_actual"]] > 0).sum(),
                     })
                 df_hist = pd.DataFrame(filas_hist)
-                st.dataframe(df_hist.style.format({"Recuperado en el periodo":"${:,.0f}"}), use_container_width=True, hide_index=True)
-                fig_hist = go.Figure(go.Bar(x=df_hist["Fecha"].astype(str), y=df_hist["Recuperado en el periodo"], marker_color=PAC_TEAL))
+                st.dataframe(df_hist.style.format({"Recuperado acumulado":"${:,.0f}"}), use_container_width=True, hide_index=True)
+                fig_hist = go.Figure(go.Bar(x=df_hist["Fecha"].astype(str), y=df_hist["Recuperado acumulado"], marker_color=PAC_TEAL))
                 apply_layout(fig_hist, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
                 st.plotly_chart(fig_hist, use_container_width=True)
