@@ -1786,7 +1786,7 @@ with tab7:
 
             k1,k2,k3,k4,k5,k6 = st.columns(6)
             k1.metric("Consultoras en cartera", f"{total_consultoras:,}")
-            k2.metric("Saldo insoluto total", f"${saldo_total/1e6:.2f}M")
+            k2.metric("Saldo deuda", f"${saldo_total/1e6:.2f}M")
             k3.metric("Deuda original total", f"${deuda_total/1e6:.2f}M")
             k4.metric("Pagos registrados", f"${pagos_total/1e6:.2f}M")
             k5.metric("% de recuperación general", f"{pct_recup:.1f}%")
@@ -1834,30 +1834,16 @@ with tab7:
                         f"</div>", unsafe_allow_html=True)
 
             st.markdown("---")
-            colA, colB = st.columns(2)
-            with colA:
-                st.markdown("**Riesgo × Rango de Edad**")
-                tab_re = df_pac[df_pac["RiesgoMigracion"].isin(["Crítico","Alto","Preventivo"])]
-                pvt = tab_re.pivot_table(index="RangoEdad", columns="RiesgoMigracion", aggfunc="size", fill_value=0)
-                pvt = pvt.reindex(orden_edad).fillna(0)
-                fig4 = go.Figure()
-                for nivel, color in [("Crítico",PAC_RED),("Alto",PAC_CORAL),("Preventivo",PAC_AMBER)]:
-                    if nivel in pvt.columns:
-                        fig4.add_trace(go.Bar(name=nivel, x=pvt.index, y=pvt[nivel], marker_color=color))
-                apply_layout(fig4, height=320, barmode="stack", legend=dict(orientation="h", y=1.15))
-                st.plotly_chart(fig4, use_container_width=True)
-            with colB:
-                st.markdown("**Score de Riesgo del Sistema**")
-                score_labels = ["Bajísimo","Bajo","Medio","Alto","Crítico"]
-                score_counts = df_pac["ScoreCategoria"].value_counts().reindex(score_labels).fillna(0)
-                sc1, sc2, sc3, sc4, sc5 = st.columns(5)
-                colores_score = [PAC_TEAL2,PAC_TEAL,PAC_AMBER,PAC_CORAL,PAC_RED]
-                for col_o, lbl, val, color in zip([sc1,sc2,sc3,sc4,sc5], score_labels, score_counts.values, colores_score):
-                    col_o.markdown(
-                        f"<div style='text-align:center;background:{CARD};border-radius:10px;padding:10px;border-top:3px solid {color}'>"
-                        f"<div style='font-size:0.75rem;color:#64748b'>{lbl}</div>"
-                        f"<div style='font-size:1.3rem;font-weight:800;color:{PAC_NAVY}'>{int(val):,}</div></div>",
-                        unsafe_allow_html=True)
+            st.markdown("**Riesgo × Rango de Edad**")
+            tab_re = df_pac[df_pac["RiesgoMigracion"].isin(["Crítico","Alto","Preventivo"])]
+            pvt = tab_re.pivot_table(index="RangoEdad", columns="RiesgoMigracion", aggfunc="size", fill_value=0)
+            pvt = pvt.reindex(orden_edad).fillna(0)
+            fig4 = go.Figure()
+            for nivel, color in [("Crítico",PAC_RED),("Alto",PAC_CORAL),("Preventivo",PAC_AMBER)]:
+                if nivel in pvt.columns:
+                    fig4.add_trace(go.Bar(name=nivel, x=pvt.index, y=pvt[nivel], marker_color=color))
+            apply_layout(fig4, height=320, barmode="stack", legend=dict(orientation="h", y=1.15))
+            st.plotly_chart(fig4, use_container_width=True)
 
         # ── PAC TAB 3 — POR TEMPORALIDAD ──
         with pac3:
