@@ -1641,13 +1641,17 @@ with tab7:
             st.dataframe(zonas[["Zona","Saldo","% Crítico"]].style.format({"Saldo":"${:,.0f}","% Crítico":"{:.1f}%"}),
                          use_container_width=True, hide_index=True)
 
-            st.markdown("**Top 10 divisiones**")
-            divisiones = df_pac.groupby(c["division"])[c["saldo_insoluto"]].sum().sort_values(ascending=False).head(10)
-            div_tab = divisiones.reset_index()
-            div_tab.columns = ["División","Saldo"]
-            div_tab["% del total"] = (div_tab["Saldo"]/df_pac[c["saldo_insoluto"]].sum()*100).round(1)
-            st.dataframe(div_tab.style.format({"Saldo":"${:,.0f}","% del total":"{:.1f}%"}),
-                         use_container_width=True, hide_index=True)
+            st.markdown("**Top 10 estados de residencia**")
+            col_estado_geo_div = pac_col_por_letra(df_pac, PAC_ESTADO_GEO_LETRA)
+            if col_estado_geo_div is not None:
+                divisiones = df_pac.groupby(col_estado_geo_div)[c["saldo_insoluto"]].sum().sort_values(ascending=False).head(10)
+                div_tab = divisiones.reset_index()
+                div_tab.columns = ["Estado","Saldo"]
+                div_tab["% del total"] = (div_tab["Saldo"]/df_pac[c["saldo_insoluto"]].sum()*100).round(1)
+                st.dataframe(div_tab.style.format({"Saldo":"${:,.0f}","% del total":"{:.1f}%"}),
+                             use_container_width=True, hide_index=True)
+            else:
+                st.caption(f"Sube la columna **{PAC_ESTADO_GEO_LETRA}** (direccion_de_residencia_estado) para ver este desglose.")
 
             st.markdown("---")
             st.markdown("**Cuentas críticas vs total por zona**")
