@@ -2057,37 +2057,43 @@ with tab7:
             k4.metric("Críticas SIN recuperación", f"{n_criticas_sin_recup:,}", delta="requieren acción", delta_color="inverse")
 
             st.markdown("---")
+            col_deuda = c["valor_original_deuda"]
+
+            def fig_asignado_vs_recuperado(g, color, orden=None):
+                if orden is not None:
+                    g = g.reindex(orden).fillna(0)
+                pct = (g["Recuperado"]/g["Asignado"]*100).fillna(0)
+                fig = go.Figure()
+                fig.add_trace(go.Bar(name="Monto asignado", x=g.index.astype(str), y=g["Asignado"], marker_color="#cbd5e1"))
+                fig.add_trace(go.Bar(name="Recuperado", x=g.index.astype(str), y=g["Recuperado"], marker_color=color,
+                                      text=[f"{p:.1f}%" for p in pct], textposition="outside"))
+                apply_layout(fig, height=300, barmode="group", yaxis=dict(tickprefix="$", tickformat=",.0f"),
+                             legend=dict(orientation="h", y=1.15))
+                return fig
+
             cdim1, cdim2 = st.columns(2)
             with cdim1:
                 st.markdown("**Recuperación por Temporalidad**")
-                rt = df_pac.groupby("Temporalidad")[col_pago].sum().reindex(orden_t).fillna(0)
-                fig_t = go.Figure(go.Bar(x=orden_t, y=rt.values, marker_color=PAC_TEAL2))
-                apply_layout(fig_t, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
-                st.plotly_chart(fig_t, use_container_width=True)
+                gt = df_pac.groupby("Temporalidad").agg(Asignado=(col_deuda,"sum"), Recuperado=(col_pago,"sum"))
+                st.plotly_chart(fig_asignado_vs_recuperado(gt, PAC_TEAL2, orden_t), use_container_width=True)
             with cdim2:
                 st.markdown("**Recuperación por Segmentación (camino de crecimiento)**")
-                rs = df_pac.groupby(c["segmentacion_rep"])[col_pago].sum().sort_values(ascending=False)
-                fig_s = go.Figure(go.Bar(x=rs.index, y=rs.values, marker_color=PAC_AMBER))
-                apply_layout(fig_s, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
-                st.plotly_chart(fig_s, use_container_width=True)
+                gs = df_pac.groupby(c["segmentacion_rep"]).agg(Asignado=(col_deuda,"sum"), Recuperado=(col_pago,"sum")).sort_values("Recuperado", ascending=False)
+                st.plotly_chart(fig_asignado_vs_recuperado(gs, PAC_AMBER), use_container_width=True)
 
             cdim3, cdim4 = st.columns(2)
             with cdim3:
                 st.markdown("**Recuperación por Estado**")
                 col_estado_geo7 = pac_col_por_letra(df_pac, PAC_ESTADO_GEO_LETRA)
                 if col_estado_geo7 is not None:
-                    re_ = df_pac.groupby(col_estado_geo7)[col_pago].sum().sort_values(ascending=False).head(15)
-                    fig_e = go.Figure(go.Bar(x=re_.index, y=re_.values, marker_color=PAC_TEAL))
-                    apply_layout(fig_e, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
-                    st.plotly_chart(fig_e, use_container_width=True)
+                    ge = df_pac.groupby(col_estado_geo7).agg(Asignado=(col_deuda,"sum"), Recuperado=(col_pago,"sum")).sort_values("Recuperado", ascending=False).head(15)
+                    st.plotly_chart(fig_asignado_vs_recuperado(ge, PAC_TEAL), use_container_width=True)
                 else:
                     st.caption(f"Sube la columna **{PAC_ESTADO_GEO_LETRA}** (direccion_de_residencia_estado) para ver este desglose.")
             with cdim4:
                 st.markdown("**Recuperación por Edad**")
-                ra = df_pac.groupby("RangoEdad")[col_pago].sum().reindex(orden_edad).fillna(0)
-                fig_a = go.Figure(go.Bar(x=orden_edad, y=ra.values, marker_color=PAC_CORAL))
-                apply_layout(fig_a, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
-                st.plotly_chart(fig_a, use_container_width=True)
+                ga = df_pac.groupby("RangoEdad").agg(Asignado=(col_deuda,"sum"), Recuperado=(col_pago,"sum"))
+                st.plotly_chart(fig_asignado_vs_recuperado(ga, PAC_CORAL, orden_edad), use_container_width=True)
 
             st.markdown("---")
             st.markdown("**Riesgo de migración vs. recuperación — dónde actuar**")
