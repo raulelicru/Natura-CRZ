@@ -385,7 +385,7 @@ def pac_export_html(df, encontradas):
   <div class="muted">Reporte generado el {fecha_str}</div>
   <div class="kpis">
     <div class="kpi">Consultoras en cartera<b>{total_consultoras:,}</b></div>
-    <div class="kpi">Saldo insoluto total<b>${saldo_total:,.0f}</b></div>
+    <div class="kpi">Deuda asignada<b>${saldo_total:,.0f}</b></div>
     <div class="kpi">Deuda original total<b>${deuda_total:,.0f}</b></div>
     <div class="kpi">Pagos registrados<b>${pagos_total:,.0f}</b></div>
     <div class="kpi">% Recuperación<b>{pct_recuperacion:.1f}%</b></div>
@@ -1788,7 +1788,7 @@ with tab7:
 
             k1,k2,k3,k4,k5,k6 = st.columns(6)
             k1.metric("Consultoras en cartera", f"{total_consultoras:,}")
-            k2.metric("Saldo deuda", f"${saldo_total/1e6:.2f}M")
+            k2.metric("Deuda asignada", f"${saldo_total/1e6:.2f}M")
             k3.metric("Deuda original total", f"${deuda_total/1e6:.2f}M")
             k4.metric("Pagos registrados", f"${pagos_total/1e6:.2f}M")
             k5.metric("% de recuperación general", f"{pct_recup:.1f}%")
