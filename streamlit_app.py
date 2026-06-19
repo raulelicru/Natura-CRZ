@@ -97,6 +97,7 @@ PAC_UMBRALES = {"T1":30,"T2":60,"T3":90,"T4":120,"T5":150,"T6":180,"T7":None}
 
 PAC_PAGO_LETRA = "CF"  # columna de Excel donde vive el pago (independiente del encabezado)
 PAC_SALDO_LETRA = "I"  # columna de Excel donde vive el valor_saldo_deuda (independiente del encabezado)
+PAC_ESTADO_GEO_LETRA = "AN"  # columna de Excel donde vive direccion_de_residencia_estado (independiente del encabezado)
 
 def pac_col_por_letra(df, letra=PAC_PAGO_LETRA):
     """Devuelve el nombre de la columna del DataFrame en la posición de la letra de Excel dada."""
@@ -1469,6 +1470,21 @@ with tab7:
             apply_layout(fig4, height=320, barmode="stack", legend=dict(orientation="h", y=1.15))
             st.plotly_chart(fig4, use_container_width=True)
 
+            col_estado_geo = pac_col_por_letra(df_pac, PAC_ESTADO_GEO_LETRA)
+            if col_estado_geo is not None:
+                st.markdown("---")
+                st.markdown("**Riesgo por Estado**")
+                tab_estado = df_pac[df_pac["RiesgoMigracion"].isin(["Crítico","Alto","Preventivo"])]
+                pvt_estado = tab_estado.pivot_table(index=col_estado_geo, columns="RiesgoMigracion", aggfunc="size", fill_value=0)
+                pvt_estado["Total"] = pvt_estado.sum(axis=1)
+                pvt_estado = pvt_estado.sort_values("Total", ascending=False).drop(columns="Total").head(15)
+                fig_estado = go.Figure()
+                for nivel, color in [("Crítico",PAC_RED),("Alto",PAC_CORAL),("Preventivo",PAC_AMBER)]:
+                    if nivel in pvt_estado.columns:
+                        fig_estado.add_trace(go.Bar(name=nivel, x=pvt_estado.index, y=pvt_estado[nivel], marker_color=color))
+                apply_layout(fig_estado, height=360, barmode="stack", legend=dict(orientation="h", y=1.15))
+                st.plotly_chart(fig_estado, use_container_width=True)
+
         # ── PAC TAB 3 — POR TEMPORALIDAD ──
         with pac3:
             filas = []
@@ -1622,7 +1638,7 @@ with tab7:
             })).reset_index().rename(columns={c["zona"]:"Zona"})
             zonas["% Crítico"] = (zonas["Críticas"]/zonas["Total"]*100).round(1)
             zonas = zonas.sort_values("Saldo", ascending=False).head(10)
-            st.dataframe(zonas[["Zona","Saldo","Críticas","% Crítico"]].style.format({"Saldo":"${:,.0f}","% Crítico":"{:.1f}%"}),
+            st.dataframe(zonas[["Zona","Saldo","% Crítico"]].style.format({"Saldo":"${:,.0f}","% Crítico":"{:.1f}%"}),
                          use_container_width=True, hide_index=True)
 
             st.markdown("**Top 10 divisiones**")
