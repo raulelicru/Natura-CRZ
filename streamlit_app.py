@@ -1,5 +1,5 @@
 """
-Dashboard de Cobranza Mayo 2025 — NAtura
+Dashboard de Cobranza Junio 2026 — NAtura
 """
 import re
 import random
@@ -15,7 +15,7 @@ from openpyxl.utils import column_index_from_string
 random.seed(2025)
 np.random.seed(2025)
 
-st.set_page_config(page_title="Cobranza Mayo 2025 — NAtura", page_icon="📊",
+st.set_page_config(page_title="Cobranza Junio 2026 — NAtura", page_icon="📊",
                    layout="wide", initial_sidebar_state="collapsed")
 
 BG="#f8fafc"; CARD="#ffffff"; BORD="#e2e8f0"
@@ -349,7 +349,7 @@ new Chart(document.getElementById('cSeg'),{{type:'bar',data:{{labels:{json.dumps
 # ── SIDEBAR ──
 with st.sidebar:
     st.markdown("## 📂 Cargar datos reales")
-    st.caption("Sube tus archivos de Mayo.")
+    st.caption("Sube tus archivos de Junio.")
     f_cartera =st.file_uploader("📋 Cartera / Remesa",    type=["csv","xlsx","xls"],key="cartera")
     f_pagos   =st.file_uploader("💰 Pagos / Recuperación",type=["csv","xlsx","xls"],key="pagos")
     f_gestion =st.file_uploader("📞 Gestión de llamadas", type=["csv","xlsx","xls"],key="gestion")
@@ -379,7 +379,7 @@ with st.sidebar:
 
 # ── PANTALLA DE ESPERA ──
 if not st.session_state.get("ejecutado"):
-    st.markdown("## 📊 Dashboard Ejecutivo — Cobranza Mayo 2025")
+    st.markdown("## 📊 Dashboard Ejecutivo — Cobranza Junio 2026")
     st.caption("NAtura | Reunión de seguimiento")
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(
@@ -503,7 +503,7 @@ df_proy=pd.DataFrame({"Fecha":dias_jun,
     "Meta":np.linspace(0,META_JUN,n),"Base":np.linspace(0,PROY_JUN,n),
     "Optimista":np.linspace(0,META_JUN*1.05,n),"Pesimista":np.linspace(0,PROY_JUN*0.88,n)})
 df_palancas=pd.DataFrame({
-    "Palanca":["Recuperar promesas caídas Mayo","Incrementar contact rate",
+    "Palanca":["Recuperar promesas caídas Junio","Incrementar contact rate",
                "Mejorar conv. WhatsApp","Script objeciones","GVs rezagados"],
     "Impacto estimado $":[420000,280000,180000,150000,220000],
 })
@@ -804,10 +804,10 @@ df_motivos.loc[df_motivos["Casos"].idxmax(),"Casos"]+=_diff
 # ── HEADER ──
 c1h,c2h,c3h=st.columns([3,1,1])
 with c1h:
-    st.markdown("## 📊 Dashboard Ejecutivo — Cobranza Mayo 2025")
+    st.markdown("## 📊 Dashboard Ejecutivo — Cobranza Junio 2026")
     st.caption("NAtura | Reunión de seguimiento | 09 Jun 2025")
 with c2h:
-    st.metric("Recuperación Mayo",f"${RECUPERADO_TOTAL/1e6:.2f}M",
+    st.metric("Recuperación Junio",f"${RECUPERADO_TOTAL/1e6:.2f}M",
               delta=f"{(RECUPERADO_TOTAL/META_TOTAL*100-100):.1f}% vs meta")
 with c3h:
     st.metric("Contact Rate",f"{CR*100:.1f}%",delta="–3.2pp vs abr")
@@ -818,7 +818,7 @@ tab1,tab2,tab3,tab4,tab5,tab6,tab7=st.tabs([
 
 # ══ TAB 1 ─ CIERRE DE MES ══
 with tab1:
-    st.markdown('<div class="sec">Cierre de Mes — Mayo 2025</div>',unsafe_allow_html=True)
+    st.markdown('<div class="sec">Cierre de Mes — Junio 2026</div>',unsafe_allow_html=True)
     c1,c2,c3,c4,c5=st.columns(5)
     c1.metric("Meta mensual",f"${META_TOTAL/1e6:.2f}M")
     c2.metric("Recuperado",f"${RECUPERADO_TOTAL/1e6:.2f}M",delta=f"{(RECUPERADO_TOTAL/META_TOTAL-1)*100:.1f}%")
@@ -1023,7 +1023,7 @@ with tab3:
                          yaxis=dict(tickprefix="$",tickformat=",.0f"))
             st.plotly_chart(fig3,use_container_width=True)
         with cr2:
-            st.markdown("**Recuperación diaria — Mayo**")
+            st.markdown("**Recuperación diaria — Junio**")
             fig4=go.Figure()
             fig4.add_trace(go.Bar(x=df_cierre["Fecha"],y=df_cierre["Recuperado"],name="Diario",
                                   marker_color=BLUE,opacity=0.7))
@@ -1112,7 +1112,7 @@ with tab3:
 
 # ══ TAB 4 ─ OPERACIÓN ══
 with tab4:
-    st.markdown('<div class="sec">Operación de Asesores — Mayo 2025</div>',unsafe_allow_html=True)
+    st.markdown('<div class="sec">Operación de Asesores — Junio 2026</div>',unsafe_allow_html=True)
     avg_tmo=df_asesores["TMO (min)"].mean()
     total_llam=df_asesores["Llamadas"].sum()
     avg_abandono=df_asesores["% Abandono"].mean()
@@ -1212,7 +1212,7 @@ with tab5:
     st.markdown("<br>",unsafe_allow_html=True)
     st.success(f"**Resumen ejecutivo:** Palancas propuestas: **${total_impacto/1e6:.2f}M** adicional, "
                f"cubriendo **{total_impacto/gap_jun*100:.0f}%** del gap. "
-               f"Prioridad #1: rellamada a las **{PROMESAS_CAIDAS} promesas caídas** de Mayo.")
+               f"Prioridad #1: rellamada a las **{PROMESAS_CAIDAS} promesas caídas** de Junio.")
 
 # ══ TAB 6 ─ COMPARATIVO COBRANZA ══
 with tab6:
