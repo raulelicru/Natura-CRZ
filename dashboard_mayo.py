@@ -1,5 +1,5 @@
 """
-Dashboard de Cobranza Mayo 2025 — NAtura
+Dashboard de Cobranza Junio 2026 — NAtura
 Indicadores ejecutivos para reunion de cierre de mes
 """
 
@@ -21,7 +21,7 @@ np.random.seed(2025)
 # CONFIGURACION
 # ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="Cobranza Mayo 2025 — NAtura",
+    page_title="Cobranza Junio 2026 — NAtura",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -557,7 +557,7 @@ df_proy = pd.DataFrame({
 })
 
 df_palancas = pd.DataFrame({
-    "Palanca":             ["Recuperar promesas caídas Mayo","Incrementar contact rate",
+    "Palanca":             ["Recuperar promesas caídas Junio","Incrementar contact rate",
                             "Mejorar conv. WhatsApp","Script objeciones","GVs rezagados"],
     "Impacto estimado $":  [420000, 280000, 180000, 150000, 220000],
 })
@@ -582,7 +582,7 @@ if not st.session_state.archivos_listos:
             Dashboard de Cobranza
         </h1>
         <h2 style="font-size:1.4rem; font-weight:400; color:#64748b; margin:0 0 8px 0;">
-            Mayo 2025 — NAtura
+            Junio 2026 — NAtura
         </h2>
         <p style="color:#94a3b8; font-size:0.95rem;">
             Sube tus archivos para generar los indicadores con datos reales.<br>
@@ -1094,12 +1094,12 @@ if df_cart_real is not None:
 # ─────────────────────────────────────────────
 col_h1, col_h2, col_h3 = st.columns([3, 1, 1])
 with col_h1:
-    st.markdown("## 📊 Dashboard Ejecutivo — Cobranza Mayo 2025")
+    st.markdown("## 📊 Dashboard Ejecutivo — Cobranza Junio 2026")
     st.caption("NAtura | Reunión de seguimiento | 09 Jun 2025")
 with col_h2:
     pct = RECUPERADO_TOTAL / META_TOTAL * 100
     delta_pct = pct - 100
-    st.metric("Recuperación Mayo", f"${RECUPERADO_TOTAL/1e6:.2f}M",
+    st.metric("Recuperación Junio", f"${RECUPERADO_TOTAL/1e6:.2f}M",
               delta=f"{delta_pct:.1f}% vs meta")
 with col_h3:
     st.metric("Contact Rate", f"{CR*100:.1f}%", delta="–3.2pp vs abr")
@@ -1121,7 +1121,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 # TAB 1 — CIERRE DE MES
 # ══════════════════════════════════════════════
 with tab1:
-    st.markdown('<div class="sec">Cierre de Mes — Mayo 2025</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec">Cierre de Mes — Junio 2026</div>', unsafe_allow_html=True)
 
     c1,c2,c3,c4,c5 = st.columns(5)
     c1.metric("Asignación por temporalidad", f"${META_TOTAL/1e6:.2f}M")
@@ -1399,7 +1399,7 @@ with tab3:
 # TAB 4 — OPERACIÓN
 # ══════════════════════════════════════════════
 with tab4:
-    st.markdown('<div class="sec">Operación de Asesores — Mayo 2025</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec">Operación de Asesores — Junio 2026</div>', unsafe_allow_html=True)
 
     avg_tmo     = df_asesores["TMO (min)"].mean()
     total_llam  = TOTAL_LLAMADAS
@@ -1580,7 +1580,7 @@ with tab5:
     st.success(
         f"**Resumen ejecutivo:** Con las palancas propuestas se puede cerrar hasta **${total_impacto/1e6:.2f}M** "
         f"adicional, cubriendo el **{total_impacto/gap_jun*100:.0f}%** del gap. "
-        f"La prioridad #1 esta semana es activar la rellamada a las **{PROMESAS_CAIDAS} promesas caídas** de Mayo "
+        f"La prioridad #1 esta semana es activar la rellamada a las **{PROMESAS_CAIDAS} promesas caídas** de Junio "
         f"y lanzar el A/B test de WhatsApp antes del miércoles."
     )
 
