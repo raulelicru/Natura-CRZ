@@ -2157,19 +2157,8 @@ with tab7:
                 st.plotly_chart(fig_hist, use_container_width=True)
 
 # ══════════════════════════════════════════════
-# TAB 8 — INDICADORES CIERRE DE MES
-# ══════════════════════════════════════════════
-with tab8:
-    st.markdown('<div class="sec">📋 Indicadores Cierre de Mes — Junio 2026</div>', unsafe_allow_html=True)
-
-    # ── Inicializar session_state ──
-    for _k, _v in [("rem_df",None),("rem_cols",{}),("gest_df",None),("gest_cols",{}),
-                   ("pag_df",None),("pag_cols",{}),("prom_df",None),("prom_cols",{}),("pag_tabla_df",None)]:
-        if _k not in st.session_state:
-            st.session_state[_k] = _v
-
-    # ── Reutilizar archivos ya cargados en el sidebar ──
-    def _build_rem_cols(df):
+# ── Helpers de detección de columnas (tab8/tab9) ──
+def _build_rem_cols(df):
         cl = {c.lower().strip(): c for c in df.columns}
         rc_ = {}
         for clave, opts in [
@@ -2193,224 +2182,111 @@ with tab8:
             rc_["temporalidad"] = "Temporalidad_R"
         return rc_
 
-    def _build_pag_cols(df):
-        cl = {c.lower().strip(): c for c in df.columns}
-        pc_ = {}
-        for clave, opts in [
-            ("id",    ("codigo_de_cliente","codigo_cliente","id","folio","cuenta")),
-            ("monto", ("monto_pagado","monto","pago","importe_pago","importe","bu (pago total)")),
-            ("fecha", ("fecha_pago","fecha","date")),
-            ("asesor",("asesor","agente","ejecutivo")),
-        ]:
-            for o in opts:
-                if o in cl: pc_[clave] = cl[o]; break
-        if "monto" in pc_:
-            df[pc_["monto"]] = pd.to_numeric(df[pc_["monto"]], errors="coerce").fillna(0)
-        return pc_
+def _build_pag_cols(df):
+    cl = {c.lower().strip(): c for c in df.columns}
+    pc_ = {}
+    for clave, opts in [
+        ("id",    ("codigo_de_cliente","codigo_cliente","id","folio","cuenta")),
+        ("monto", ("monto_pagado","monto","pago","importe_pago","importe","bu (pago total)")),
+        ("fecha", ("fecha_pago","fecha","date")),
+        ("asesor",("asesor","agente","ejecutivo")),
+    ]:
+        for o in opts:
+            if o in cl: pc_[clave] = cl[o]; break
+    if "monto" in pc_:
+        df[pc_["monto"]] = pd.to_numeric(df[pc_["monto"]], errors="coerce").fillna(0)
+    return pc_
 
-    def _build_gest_cols(df):
-        cl = {c.lower().strip(): c for c in df.columns}
-        gc_ = {}
-        for clave, opts in [
-            ("id",       ("codigo_de_cliente","codigo_cliente","id","folio","cuenta","numero_de_cliente")),
-            ("resultado",("resultado","resultado_llamada","resultado_gestion","status","contactado","medicion")),
-            ("hora",     ("hora_llamada","hora","hora_gestion")),
-            ("canal",    ("canal","tipo_gestion","tipo_llamada","medio","tipo")),
-            ("asesor",   ("asesor","agente","usuario","ejecutivo")),
-            ("fecha",    ("fecha","fecha_llamada","fecha_gestion")),
-            ("duracion", ("duracion_seg","duracion","segundos")),
-        ]:
-            for o in opts:
-                if o in cl: gc_[clave] = cl[o]; break
-        if "resultado" in gc_:
-            no_c = ["no contacto","no_contacto","no contesto","no contestó","buzon","buzón","ocupado","no localizado","no encontrado"]
-            si_c = ["contacto","contactado","promesa","acuerdo","compromiso","localizado","si hablo","habló","hablo"]
-            df["_contacto"] = df[gc_["resultado"]].astype(str).str.lower().str.strip().apply(
-                lambda x: (not any(p in x for p in no_c)) and any(p in x for p in si_c)
-            )
-        return gc_
+def _build_gest_cols(df):
+    cl = {c.lower().strip(): c for c in df.columns}
+    gc_ = {}
+    for clave, opts in [
+        ("id",       ("codigo_de_cliente","codigo_cliente","id","folio","cuenta","numero_de_cliente")),
+        ("resultado",("resultado","resultado_llamada","resultado_gestion","status","contactado","medicion")),
+        ("hora",     ("hora_llamada","hora","hora_gestion")),
+        ("canal",    ("canal","tipo_gestion","tipo_llamada","medio","tipo")),
+        ("asesor",   ("asesor","agente","usuario","ejecutivo")),
+        ("fecha",    ("fecha","fecha_llamada","fecha_gestion")),
+        ("duracion", ("duracion_seg","duracion","segundos")),
+    ]:
+        for o in opts:
+            if o in cl: gc_[clave] = cl[o]; break
+    if "resultado" in gc_:
+        no_c = ["no contacto","no_contacto","no contesto","no contestó","buzon","buzón","ocupado","no localizado","no encontrado"]
+        si_c = ["contacto","contactado","promesa","acuerdo","compromiso","localizado","si hablo","habló","hablo"]
+        df["_contacto"] = df[gc_["resultado"]].astype(str).str.lower().str.strip().apply(
+            lambda x: (not any(p in x for p in no_c)) and any(p in x for p in si_c)
+        )
+    return gc_
 
-    def _build_prom_cols(df):
-        cl = {c.lower().strip(): c for c in df.columns}
-        prc_ = {}
-        for clave, opts in [
-            ("id",      ("codigo_de_cliente","codigo_cliente","id","folio","cuenta")),
-            ("monto",   ("monto_promesa","monto","importe_promesa","importe")),
-            ("fecha",   ("fecha_promesa","fecha","date")),
-            ("cumplida",("cumplida","pagado","estatus","status","resultado")),
-        ]:
-            for o in opts:
-                if o in cl: prc_[clave] = cl[o]; break
-        if "monto" in prc_:
-            df[prc_["monto"]] = pd.to_numeric(df[prc_["monto"]], errors="coerce").fillna(0)
-        return prc_
+def _build_prom_cols(df):
+    cl = {c.lower().strip(): c for c in df.columns}
+    prc_ = {}
+    for clave, opts in [
+        ("id",      ("codigo_de_cliente","codigo_cliente","id","folio","cuenta")),
+        ("monto",   ("monto_promesa","monto","importe_promesa","importe")),
+        ("fecha",   ("fecha_promesa","fecha","date")),
+        ("cumplida",("cumplida","pagado","estatus","status","resultado")),
+    ]:
+        for o in opts:
+            if o in cl: prc_[clave] = cl[o]; break
+    if "monto" in prc_:
+        df[prc_["monto"]] = pd.to_numeric(df[prc_["monto"]], errors="coerce").fillna(0)
+    return prc_
 
-    # Sincronizar con archivos del sidebar si no se cargaron en Tab8
-    if st.session_state.rem_df is None and df_cart_real is not None:
-        st.session_state.rem_df   = df_cart_real.copy()
-        st.session_state.rem_cols = _build_rem_cols(st.session_state.rem_df)
-    if st.session_state.pag_df is None and df_pago_real is not None:
-        st.session_state.pag_df   = df_pago_real.copy()
-        st.session_state.pag_cols = _build_pag_cols(st.session_state.pag_df)
-    if st.session_state.gest_df is None and df_gest_real is not None:
-        st.session_state.gest_df   = df_gest_real.copy()
-        st.session_state.gest_cols = _build_gest_cols(st.session_state.gest_df)
-    if st.session_state.prom_df is None and df_prom_real is not None:
-        st.session_state.prom_df   = df_prom_real.copy()
-        st.session_state.prom_cols = _build_prom_cols(st.session_state.prom_df)
+# ══════════════════════════════════════════════
+# TAB 8 — INDICADORES CIERRE DE MES
+# ══════════════════════════════════════════════
+with tab8:
+    st.markdown('<div class="sec">📋 Indicadores Cierre de Mes — Junio 2026</div>', unsafe_allow_html=True)
 
-    _need_upload = (st.session_state.rem_df is None or st.session_state.pag_df is None
-                    or st.session_state.gest_df is None)
-    with st.expander("📁 Archivos fuente — cargar o actualizar", expanded=_need_upload):
-        cu1, cu2, cu3, cu4 = st.columns(4)
+    # ── Usar archivos del sidebar directamente ──
+    rem  = df_cart_real
+    pag  = df_pago_real
+    gest = df_gest_real
+    prom = df_prom_real
 
-        # ── Cartera / Remesa ──
-        with cu1:
-            st.markdown("**📋 Cartera / Remesa**")
-            f_rem = st.file_uploader("Remesa asignación (.xlsx)", type=["xlsx"], key="rem_uploader")
-            if f_rem:
+    rc   = _build_rem_cols(rem.copy())  if rem  is not None else {}
+    pc   = _build_pag_cols(pag.copy())  if pag  is not None else {}
+    gc   = _build_gest_cols(gest.copy()) if gest is not None else {}
+    prc  = _build_prom_cols(prom.copy()) if prom is not None else {}
+
+    if rem is not None and "saldo" in rc:
+        rem[rc["saldo"]] = pd.to_numeric(rem[rc["saldo"]], errors="coerce").fillna(0)
+    if pag is not None and "monto" in pc:
+        pag[pc["monto"]] = pd.to_numeric(pag[pc["monto"]], errors="coerce").fillna(0)
+
+    # Tabla de pagos diarios (única en Tab 8)
+    if "pag_tabla_df" not in st.session_state:
+        st.session_state.pag_tabla_df = None
+    pt = st.session_state.pag_tabla_df
+
+    if rem is None and pag is None and gest is None:
+        st.info("Sube los archivos en el **sidebar** (Cartera, Pagos, Gestión, Promesas) para ver los indicadores.")
+    else:
+        with st.expander("📅 Tabla de pagos diarios por Temporalidad (opcional)", expanded=pt is None):
+            f_ptab = st.file_uploader("TABLA DE PAGOS (fecha + T1-T7) (.xlsx)", type=["xlsx"], key="ptab_uploader")
+            if f_ptab:
                 try:
-                    df_r = pd.read_excel(f_rem, engine="openpyxl")
-                    cl = {c.lower().strip(): c for c in df_r.columns}
-                    rc_ = {}
-                    for clave, opts in [
-                        ("id",         ("codigo_de_cliente","codigo_cliente","id","folio","cuenta")),
-                        ("saldo",      ("valor_saldo_deuda","saldo_insoluto","saldo","deuda")),
-                        ("segmento",   ("segmento_nombre","segmentacion_rep","segmentacion","camino")),
-                        ("edad",       ("edad_consultora","edad")),
-                        ("zona",       ("zona",)),
-                        ("estado_geo", ("estado","direccion_de_residencia_estado")),
-                        ("temporalidad",("temporalidad","tramo")),
-                        ("campana",    ("campana_numero","campana","campaña")),
-                        ("dias_mora",  ("dias_de_morosidad","dias_mora","aging_de_morosidad")),
-                    ]:
-                        for o in opts:
-                            if o in cl: rc_[clave] = cl[o]; break
-                    if "saldo" in rc_:
-                        df_r[rc_["saldo"]] = pd.to_numeric(df_r[rc_["saldo"]], errors="coerce").fillna(0)
-                    if "edad" in rc_:
-                        df_r[rc_["edad"]] = pd.to_numeric(df_r[rc_["edad"]], errors="coerce").fillna(0)
-                    if "campana" in rc_:
-                        df_r[rc_["campana"]] = pd.to_numeric(df_r[rc_["campana"]], errors="coerce").fillna(0)
-                    if "dias_mora" in rc_ and "temporalidad" not in rc_:
-                        df_r[rc_["dias_mora"]] = pd.to_numeric(df_r[rc_["dias_mora"]], errors="coerce").fillna(0)
-                        df_r["Temporalidad_R"] = df_r[rc_["dias_mora"]].apply(pac_temporalidad)
-                        rc_["temporalidad"] = "Temporalidad_R"
-                    st.session_state.rem_df = df_r; st.session_state.rem_cols = rc_
-                    st.success(f"✅ {len(df_r):,} cuentas")
-                    st.caption(", ".join(f"`{v}`" for v in rc_.values()))
+                    df_pt = pd.read_excel(f_ptab, engine="openpyxl")
+                    fec_c = next((c for c in df_pt.columns if "fecha" in str(c).lower()), None)
+                    t_cs  = [c for c in df_pt.columns if str(c).upper() in ["T1","T2","T3","T4","T5","T6","T7"]]
+                    tot_c = next((c for c in df_pt.columns if "total" in str(c).lower()), None)
+                    if fec_c and t_cs:
+                        df_pt[fec_c] = pd.to_datetime(df_pt[fec_c], errors="coerce")
+                        for tc in t_cs + ([tot_c] if tot_c else []):
+                            df_pt[tc] = pd.to_numeric(df_pt[tc], errors="coerce").fillna(0)
+                        st.session_state.pag_tabla_df = {"df": df_pt, "fecha": fec_c, "t_cols": t_cs, "total": tot_c}
+                        pt = st.session_state.pag_tabla_df
+                        st.success(f"✅ {len(df_pt):,} días cargados")
                 except Exception as e:
                     st.error(f"Error: {e}")
-
-        # ── Gestión de llamadas ──
-        with cu2:
-            st.markdown("**📞 Gestión de llamadas**")
-            f_gest = st.file_uploader("Vici llamadas (.xlsx)", type=["xlsx"], key="gest_uploader")
-            if f_gest:
-                try:
-                    df_g = pd.read_excel(f_gest, engine="openpyxl")
-                    cl = {c.lower().strip(): c for c in df_g.columns}
-                    gc_ = {}
-                    for clave, opts in [
-                        ("id",       ("codigo_de_cliente","codigo_cliente","id","folio","cuenta","numero_de_cliente")),
-                        ("resultado",("resultado","resultado_llamada","resultado_gestion","status","contactado")),
-                        ("hora",     ("hora_llamada","hora","hora_gestion")),
-                        ("canal",    ("canal","tipo_gestion","tipo_llamada","medio","tipo")),
-                        ("asesor",   ("asesor","agente","usuario","ejecutivo")),
-                        ("fecha",    ("fecha","fecha_llamada","fecha_gestion")),
-                        ("duracion", ("duracion_seg","duracion","segundos")),
-                    ]:
-                        for o in opts:
-                            if o in cl: gc_[clave] = cl[o]; break
-                    # detectar contactos
-                    if "resultado" in gc_:
-                        no_c = ["no contacto","no_contacto","no contesto","no contestó","buzon","buzón","ocupado","no localizado","no encontrado"]
-                        si_c = ["contacto","contactado","promesa","acuerdo","compromiso","localizado","si hablo","habló","hablo"]
-                        df_g["_contacto"] = df_g[gc_["resultado"]].astype(str).str.lower().str.strip().apply(
-                            lambda x: (not any(p in x for p in no_c)) and any(p in x for p in si_c)
-                        )
-                    st.session_state.gest_df = df_g; st.session_state.gest_cols = gc_
-                    st.success(f"✅ {len(df_g):,} gestiones")
-                    st.caption(", ".join(f"`{v}`" for v in gc_.values()))
-                except Exception as e:
-                    st.error(f"Error: {e}")
-
-        # ── Pagos / Recuperación ──
-        with cu3:
-            st.markdown("**💰 Pagos / Recuperación**")
-            f_pag = st.file_uploader("Pagos del mes (.xlsx)", type=["xlsx"], key="pag_uploader")
-            if f_pag:
-                try:
-                    df_p = pd.read_excel(f_pag, engine="openpyxl")
-                    cl = {c.lower().strip(): c for c in df_p.columns}
-                    pc_ = {}
-                    for clave, opts in [
-                        ("id",    ("codigo_de_cliente","codigo_cliente","id","folio","cuenta")),
-                        ("monto", ("monto_pagado","monto","pago","importe_pago","importe")),
-                        ("fecha", ("fecha_pago","fecha","date")),
-                        ("asesor",("asesor","agente","ejecutivo")),
-                    ]:
-                        for o in opts:
-                            if o in cl: pc_[clave] = cl[o]; break
-                    if "monto" in pc_:
-                        df_p[pc_["monto"]] = pd.to_numeric(df_p[pc_["monto"]], errors="coerce").fillna(0)
-                    st.session_state.pag_df = df_p; st.session_state.pag_cols = pc_
-                    st.success(f"✅ {len(df_p):,} pagos")
-                    st.caption(", ".join(f"`{v}`" for v in pc_.values()))
-                except Exception as e:
-                    st.error(f"Error: {e}")
-
-        # ── Promesas de pago ──
-        with cu4:
-            st.markdown("**🤝 Promesas de pago**")
-            f_prom = st.file_uploader("Halo promesas (.xlsx)", type=["xlsx"], key="prom_uploader")
-            if f_prom:
-                try:
-                    df_pm = pd.read_excel(f_prom, engine="openpyxl")
-                    cl = {c.lower().strip(): c for c in df_pm.columns}
-                    prc_ = {}
-                    for clave, opts in [
-                        ("id",     ("codigo_de_cliente","codigo_cliente","id","folio","cuenta")),
-                        ("monto",  ("monto_promesa","monto","importe_promesa","importe")),
-                        ("fecha",  ("fecha_promesa","fecha","date")),
-                        ("cumplida",("cumplida","pagado","estatus","status","resultado")),
-                    ]:
-                        for o in opts:
-                            if o in cl: prc_[clave] = cl[o]; break
-                    if "monto" in prc_:
-                        df_pm[prc_["monto"]] = pd.to_numeric(df_pm[prc_["monto"]], errors="coerce").fillna(0)
-                    st.session_state.prom_df = df_pm; st.session_state.prom_cols = prc_
-                    st.success(f"✅ {len(df_pm):,} promesas")
-                    st.caption(", ".join(f"`{v}`" for v in prc_.values()))
-                except Exception as e:
-                    st.error(f"Error: {e}")
-
-        # ── Tabla de pagos diarios (TABLA_DE_PAGOS) ──
-        st.markdown("---")
-        st.markdown("**📅 Tabla de pagos diarios por Temporalidad**")
-        f_ptab = st.file_uploader("TABLA DE PAGOS (fecha + T1-T7) (.xlsx)", type=["xlsx"], key="ptab_uploader")
-        if f_ptab:
-            try:
-                df_pt = pd.read_excel(f_ptab, engine="openpyxl")
-                fec_c = next((c for c in df_pt.columns if "fecha" in str(c).lower()), None)
-                t_cs  = [c for c in df_pt.columns if str(c).upper() in ["T1","T2","T3","T4","T5","T6","T7"]]
-                tot_c = next((c for c in df_pt.columns if "total" in str(c).lower()), None)
-                if fec_c and t_cs:
-                    df_pt[fec_c] = pd.to_datetime(df_pt[fec_c], errors="coerce")
-                    for tc in t_cs + ([tot_c] if tot_c else []):
-                        df_pt[tc] = pd.to_numeric(df_pt[tc], errors="coerce").fillna(0)
-                    st.session_state.pag_tabla_df = {"df": df_pt, "fecha": fec_c, "t_cols": t_cs, "total": tot_c}
-                    st.success(f"✅ {len(df_pt):,} días cargados")
-            except Exception as e:
-                st.error(f"Error: {e}")
 
     st.markdown("---")
     ind1, ind2, ind3 = st.tabs(["📋 Asignación", "💰 Recuperación", "📞 Gestión"])
 
     # ─── IND1: ASIGNACIÓN ───
     with ind1:
-        rem = st.session_state.rem_df
-        rc  = st.session_state.rem_cols
         if rem is None:
             st.info("Sube el archivo **Cartera / Remesa** para ver los indicadores de asignación.")
         else:
@@ -2499,16 +2375,13 @@ with tab8:
 
     # ─── IND2: RECUPERACIÓN ───
     with ind2:
-        pag  = st.session_state.pag_df
-        pc   = st.session_state.pag_cols
-        pt   = st.session_state.pag_tabla_df
-        rem2 = st.session_state.rem_df
-        rc2  = st.session_state.rem_cols
-        prom2= st.session_state.prom_df
-        prc2 = st.session_state.prom_cols
+        rem2  = rem
+        rc2   = rc
+        prom2 = prom
+        prc2  = prc
 
         if pag is None and pt is None:
-            st.info("Sube el archivo de **Pagos** o la **Tabla de pagos diarios** para ver recuperación.")
+            st.info("Sube el archivo de **Pagos** en el sidebar para ver recuperación.")
         else:
             if pag is not None and "monto" in pc:
                 recup_total = pag[pc["monto"]].sum()
@@ -2641,13 +2514,11 @@ with tab8:
 
     # ─── IND3: GESTIÓN ───
     with ind3:
-        gest = st.session_state.gest_df
-        gc   = st.session_state.gest_cols
-        rem3 = st.session_state.rem_df
-        rc3  = st.session_state.rem_cols
+        rem3 = rem
+        rc3  = rc
 
         if gest is None:
-            st.info("Sube el archivo **Gestión de llamadas (Vici)** para ver estos indicadores.")
+            st.info("Sube el archivo **Gestión de llamadas (Vici)** en el sidebar para ver estos indicadores.")
         else:
             total_g = len(gest)
             total_c = int(gest["_contacto"].sum()) if "_contacto" in gest.columns else None
@@ -2739,10 +2610,10 @@ with tab8:
 # ══════════════════════════════════════════════
 with tab9:
     st.markdown('<div class="sec">⚙️ Operación — Junio 2026</div>', unsafe_allow_html=True)
-    gest9 = st.session_state.get("gest_df")
-    gc9   = st.session_state.get("gest_cols", {})
-    prom9 = st.session_state.get("prom_df")
-    prc9  = st.session_state.get("prom_cols", {})
+    gest9 = df_gest_real
+    gc9   = _build_gest_cols(df_gest_real.copy()) if df_gest_real is not None else {}
+    prom9 = df_prom_real
+    prc9  = _build_prom_cols(df_prom_real.copy()) if df_prom_real is not None else {}
 
     if gest9 is None and prom9 is None:
         st.info("Sube los archivos desde la pestaña **'8 · Indicadores Cierre de Mes'** para ver la operación.")
