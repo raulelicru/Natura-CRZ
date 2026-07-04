@@ -2162,13 +2162,106 @@ with tab7:
 with tab8:
     st.markdown('<div class="sec">📋 Indicadores Cierre de Mes — Junio 2026</div>', unsafe_allow_html=True)
 
+    # ── Inicializar session_state ──
     for _k, _v in [("rem_df",None),("rem_cols",{}),("gest_df",None),("gest_cols",{}),
                    ("pag_df",None),("pag_cols",{}),("prom_df",None),("prom_cols",{}),("pag_tabla_df",None)]:
         if _k not in st.session_state:
             st.session_state[_k] = _v
 
-    with st.expander("📁 Archivos fuente — cargar o actualizar",
-                     expanded=(st.session_state.rem_df is None and st.session_state.gest_df is None)):
+    # ── Reutilizar archivos ya cargados en el sidebar ──
+    def _build_rem_cols(df):
+        cl = {c.lower().strip(): c for c in df.columns}
+        rc_ = {}
+        for clave, opts in [
+            ("id",           ("codigo_de_cliente","codigo_cliente","id","folio","cuenta")),
+            ("saldo",        ("valor_saldo_deuda","saldo_insoluto","saldo","deuda")),
+            ("segmento",     ("segmento_nombre","segmentacion_rep","segmentacion","camino")),
+            ("edad",         ("edad_consultora","edad")),
+            ("zona",         ("zona",)),
+            ("estado_geo",   ("estado","direccion_de_residencia_estado")),
+            ("temporalidad", ("temporalidad","tramo")),
+            ("campana",      ("campana_numero","campana","campaña")),
+            ("dias_mora",    ("dias_de_morosidad","dias_mora","aging_de_morosidad")),
+        ]:
+            for o in opts:
+                if o in cl: rc_[clave] = cl[o]; break
+        for f2 in ("saldo","edad","campana","dias_mora"):
+            if f2 in rc_:
+                df[rc_[f2]] = pd.to_numeric(df[rc_[f2]], errors="coerce").fillna(0)
+        if "dias_mora" in rc_ and "temporalidad" not in rc_:
+            df["Temporalidad_R"] = df[rc_["dias_mora"]].apply(pac_temporalidad)
+            rc_["temporalidad"] = "Temporalidad_R"
+        return rc_
+
+    def _build_pag_cols(df):
+        cl = {c.lower().strip(): c for c in df.columns}
+        pc_ = {}
+        for clave, opts in [
+            ("id",    ("codigo_de_cliente","codigo_cliente","id","folio","cuenta")),
+            ("monto", ("monto_pagado","monto","pago","importe_pago","importe","bu (pago total)")),
+            ("fecha", ("fecha_pago","fecha","date")),
+            ("asesor",("asesor","agente","ejecutivo")),
+        ]:
+            for o in opts:
+                if o in cl: pc_[clave] = cl[o]; break
+        if "monto" in pc_:
+            df[pc_["monto"]] = pd.to_numeric(df[pc_["monto"]], errors="coerce").fillna(0)
+        return pc_
+
+    def _build_gest_cols(df):
+        cl = {c.lower().strip(): c for c in df.columns}
+        gc_ = {}
+        for clave, opts in [
+            ("id",       ("codigo_de_cliente","codigo_cliente","id","folio","cuenta","numero_de_cliente")),
+            ("resultado",("resultado","resultado_llamada","resultado_gestion","status","contactado","medicion")),
+            ("hora",     ("hora_llamada","hora","hora_gestion")),
+            ("canal",    ("canal","tipo_gestion","tipo_llamada","medio","tipo")),
+            ("asesor",   ("asesor","agente","usuario","ejecutivo")),
+            ("fecha",    ("fecha","fecha_llamada","fecha_gestion")),
+            ("duracion", ("duracion_seg","duracion","segundos")),
+        ]:
+            for o in opts:
+                if o in cl: gc_[clave] = cl[o]; break
+        if "resultado" in gc_:
+            no_c = ["no contacto","no_contacto","no contesto","no contestó","buzon","buzón","ocupado","no localizado","no encontrado"]
+            si_c = ["contacto","contactado","promesa","acuerdo","compromiso","localizado","si hablo","habló","hablo"]
+            df["_contacto"] = df[gc_["resultado"]].astype(str).str.lower().str.strip().apply(
+                lambda x: (not any(p in x for p in no_c)) and any(p in x for p in si_c)
+            )
+        return gc_
+
+    def _build_prom_cols(df):
+        cl = {c.lower().strip(): c for c in df.columns}
+        prc_ = {}
+        for clave, opts in [
+            ("id",      ("codigo_de_cliente","codigo_cliente","id","folio","cuenta")),
+            ("monto",   ("monto_promesa","monto","importe_promesa","importe")),
+            ("fecha",   ("fecha_promesa","fecha","date")),
+            ("cumplida",("cumplida","pagado","estatus","status","resultado")),
+        ]:
+            for o in opts:
+                if o in cl: prc_[clave] = cl[o]; break
+        if "monto" in prc_:
+            df[prc_["monto"]] = pd.to_numeric(df[prc_["monto"]], errors="coerce").fillna(0)
+        return prc_
+
+    # Sincronizar con archivos del sidebar si no se cargaron en Tab8
+    if st.session_state.rem_df is None and df_cart_real is not None:
+        st.session_state.rem_df   = df_cart_real.copy()
+        st.session_state.rem_cols = _build_rem_cols(st.session_state.rem_df)
+    if st.session_state.pag_df is None and df_pago_real is not None:
+        st.session_state.pag_df   = df_pago_real.copy()
+        st.session_state.pag_cols = _build_pag_cols(st.session_state.pag_df)
+    if st.session_state.gest_df is None and df_gest_real is not None:
+        st.session_state.gest_df   = df_gest_real.copy()
+        st.session_state.gest_cols = _build_gest_cols(st.session_state.gest_df)
+    if st.session_state.prom_df is None and df_prom_real is not None:
+        st.session_state.prom_df   = df_prom_real.copy()
+        st.session_state.prom_cols = _build_prom_cols(st.session_state.prom_df)
+
+    _need_upload = (st.session_state.rem_df is None or st.session_state.pag_df is None
+                    or st.session_state.gest_df is None)
+    with st.expander("📁 Archivos fuente — cargar o actualizar", expanded=_need_upload):
         cu1, cu2, cu3, cu4 = st.columns(4)
 
         # ── Cartera / Remesa ──
