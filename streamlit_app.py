@@ -406,7 +406,7 @@ HORAS=list(range(8,21))
 DIAS_SEM=["Lunes","Martes","Miércoles","Jueves","Viernes"]
 
 META_TOTAL=6_000_000; RECUPERADO_TOTAL=5_091_147
-PROMESAS_GEN=1_240; PROMESAS_CUMP=748; PROMESAS_CAIDAS=PROMESAS_GEN-PROMESAS_CUMP
+PROMESAS_GEN=2_724; PROMESAS_CUMP=0; PROMESAS_CAIDAS=PROMESAS_GEN-PROMESAS_CUMP
 
 dias=pd.date_range("2025-05-01","2025-05-31",freq="B")
 meta_d=META_TOTAL/len(dias)
@@ -599,6 +599,12 @@ if df_gest_real is not None:
     c_hora=col(df_gest_real,"hora_llamada","hora","hour")
     c_fecha_g=col(df_gest_real,"fecha_llamada","fecha","date")
     TOTAL_INT=len(df_gest_real)
+    # Columna J (índice 9) = promesa de pago (si/no)
+    if df_gest_real.shape[1] > 9:
+        col_j = df_gest_real.columns[9]
+        j_lower = df_gest_real[col_j].astype(str).str.strip().str.lower()
+        PROMESAS_GEN = int(j_lower.isin(["si","sí","s","1","true","yes"]).sum())
+        PROMESAS_CAIDAS = PROMESAS_GEN - PROMESAS_CUMP
     if c_res:
         res_lower=df_gest_real[c_res].astype(str).str.lower()
         TITULAR=int(res_lower.isin(["contacto titular","titular","contactado","promesa","pdc"]).sum())
