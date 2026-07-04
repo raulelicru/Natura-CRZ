@@ -587,12 +587,16 @@ if df_pago_real is not None:
 
 if df_prom_real is not None:
     c_mp=col(df_prom_real,"monto_promesa","promesa_monto","monto","importe")
-    c_cum=col(df_prom_real,"cumplida","estatus","status","resultado")
-    PROMESAS_GEN=len(df_prom_real)
-    if c_cum:
-        cumplidas=df_prom_real[c_cum].astype(str).str.lower().isin(["1","si","sí","cumplida","pagada","true"])
-        PROMESAS_CUMP=int(cumplidas.sum()); PROMESAS_CAIDAS=PROMESAS_GEN-PROMESAS_CUMP
+    c_id_prom=col(df_prom_real,"codigo de cliente","codigo_de_cliente","numero_clave","id","folio")
     if c_mp: PIPELINE_PROM=df_prom_real[c_mp].sum()
+    # Calcular cumplimiento cruzando con pagos
+    if df_pago_real is not None and c_id_prom:
+        c_id_pag=col(df_pago_real,"codigo de cliente","codigo_de_cliente","numero_clave","id","folio")
+        if c_id_pag:
+            ids_con_pago=set(df_pago_real[c_id_pag].astype(str).str.strip())
+            prom_ids=df_prom_real[c_id_prom].astype(str).str.strip()
+            PROMESAS_CUMP=int(prom_ids.isin(ids_con_pago).sum())
+            PROMESAS_CAIDAS=PROMESAS_GEN-PROMESAS_CUMP
 
 if df_gest_real is not None:
     c_res=col(df_gest_real,"resultado","resultado_gestion","disposicion","tipificacion")
