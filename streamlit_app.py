@@ -1872,10 +1872,10 @@ with tab8:
     gest = df_gest_real
     prom = df_prom_real
 
-    rc   = _build_rem_cols(rem.copy())  if rem  is not None else {}
-    pc   = _build_pag_cols(pag.copy())  if pag  is not None else {}
-    gc   = _build_gest_cols(gest.copy()) if gest is not None else {}
-    prc  = _build_prom_cols(prom.copy()) if prom is not None else {}
+    rc   = _build_rem_cols(rem)  if rem  is not None else {}
+    pc   = _build_pag_cols(pag)  if pag  is not None else {}
+    gc   = _build_gest_cols(gest) if gest is not None else {}
+    prc  = _build_prom_cols(prom) if prom is not None else {}
 
     if rem is not None and "saldo" in rc:
         rem[rc["saldo"]] = pd.to_numeric(rem[rc["saldo"]], errors="coerce").fillna(0)
