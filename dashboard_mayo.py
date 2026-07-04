@@ -433,8 +433,8 @@ HORAS     = list(range(8, 21))
 # ── Cierre de mes ────────────────────────────
 META_TOTAL       = 6_000_000
 RECUPERADO_TOTAL = 5_091_147.00
-PROMESAS_GEN     = 1_240
-PROMESAS_CUMP    = 748
+PROMESAS_GEN     = 2_724
+PROMESAS_CUMP    = 0
 PROMESAS_CAIDAS  = PROMESAS_GEN - PROMESAS_CUMP
 
 dias = pd.date_range("2025-05-01", "2025-05-31", freq="B")
@@ -930,6 +930,12 @@ if df_gest_real is not None:
     c_dur  = col(df_gest_real, "duracion_seg","duracion","duration","tmo")
     c_canal= col(df_gest_real, "canal","medio","channel","tipo_contacto")
     c_as   = col(df_gest_real, "asesor","ejecutivo","agente")
+    # Columna J (índice 9) = promesa de pago (si/no)
+    if df_gest_real.shape[1] > 9:
+        col_j = df_gest_real.columns[9]
+        j_lower = df_gest_real[col_j].astype(str).str.strip().str.lower()
+        PROMESAS_GEN = int(j_lower.isin(["si","sí","s","1","true","yes"]).sum())
+        PROMESAS_CAIDAS = PROMESAS_GEN - PROMESAS_CUMP
 
     CONTACTADOS = ["contacto directo","contacto indirecto"]
     NO_CONTACTADO = ["no contactado"]
