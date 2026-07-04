@@ -805,7 +805,7 @@ df_motivos.loc[df_motivos["Casos"].idxmax(),"Casos"]+=_diff
 c1h,c2h,c3h=st.columns([3,1,1])
 with c1h:
     st.markdown("## 📊 Dashboard Ejecutivo — Cobranza Junio 2026")
-    st.caption("NAtura | Reunión de seguimiento | 09 Jun 2025")
+    st.caption("NAtura | Reunión de seguimiento | Junio 2026")
 with c2h:
     st.metric("Recuperación Junio",f"${RECUPERADO_TOTAL/1e6:.2f}M",
               delta=f"{(RECUPERADO_TOTAL/META_TOTAL*100-100):.1f}% vs meta")
@@ -1170,7 +1170,7 @@ with tab4:
 
 # ══ TAB 5 ─ PLAN DE TRABAJO ══
 with tab5:
-    st.markdown('<div class="sec">Plan de Trabajo — Junio 2025</div>',unsafe_allow_html=True)
+    st.markdown('<div class="sec">Plan de Trabajo — Junio 2026</div>',unsafe_allow_html=True)
     gap_jun=META_JUN-PROY_JUN
     c1,c2,c3,c4=st.columns(4)
     c1.metric("Meta Junio",f"${META_JUN/1e6:.1f}M")
