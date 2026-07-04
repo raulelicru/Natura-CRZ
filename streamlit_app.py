@@ -60,6 +60,10 @@ def apply_layout(fig,**kwargs):
 def leer_archivo(f):
     if f is None: return None
     try:
+        f.seek(0)
+    except Exception:
+        pass
+    try:
         if f.name.lower().endswith((".xlsx",".xls")): return pd.read_excel(f)
         return pd.read_csv(f,encoding="utf-8-sig",low_memory=False)
     except Exception:

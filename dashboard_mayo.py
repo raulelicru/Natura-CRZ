@@ -699,6 +699,10 @@ def cargar_desde_bytes(bytes_data, nombre, cols):
 def cargar_si_existe(f, cols):
     if f is None:
         return None
+    try:
+        f.seek(0)
+    except Exception:
+        pass
     return cargar_desde_bytes(f.read(), f.name, cols)
 
 df_cart_real  = cargar_si_existe(f_cartera,  COLS_CARTERA)
