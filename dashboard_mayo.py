@@ -1095,7 +1095,7 @@ if df_cart_real is not None:
 col_h1, col_h2, col_h3 = st.columns([3, 1, 1])
 with col_h1:
     st.markdown("## 📊 Dashboard Ejecutivo — Cobranza Junio 2026")
-    st.caption("NAtura | Reunión de seguimiento | 09 Jun 2025")
+    st.caption("NAtura | Reunión de seguimiento | Junio 2026")
 with col_h2:
     pct = RECUPERADO_TOTAL / META_TOTAL * 100
     delta_pct = pct - 100
@@ -1507,7 +1507,7 @@ with tab4:
 # TAB 5 — PLAN DE TRABAJO
 # ══════════════════════════════════════════════
 with tab5:
-    st.markdown('<div class="sec">Plan de Trabajo — Junio 2025</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec">Plan de Trabajo — Junio 2026</div>', unsafe_allow_html=True)
 
     gap_jun = META_JUN - PROY_JUN
     c1,c2,c3,c4 = st.columns(4)
