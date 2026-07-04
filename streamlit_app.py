@@ -812,9 +812,11 @@ with c2h:
 with c3h:
     st.metric("Contact Rate",f"{CR*100:.1f}%",delta="–3.2pp vs abr")
 
-tab1,tab2,tab3,tab4,tab5,tab6,tab7=st.tabs([
-    "1 · Cierre de Mes","2 · Contactabilidad","3 · Indicadores","4 · Operación","5 · Plan de Trabajo",
-    "6 · Comparativo Cobranza","7 · Plan de Acción Cobranza"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+    "1 · Cierre de Mes", "2 · Contactabilidad", "3 · Indicadores",
+    "4 · Operación", "5 · Plan de Trabajo", "6 · Comparativo Cobranza",
+    "7 · Plan de Acción Cobranza", "8 · Indicadores Cierre de Mes", "9 · Operación",
+])
 
 # ══ TAB 1 ─ CIERRE DE MES ══
 with tab1:
@@ -1767,3 +1769,587 @@ with tab7:
                 fig_hist = go.Figure(go.Bar(x=df_hist["Fecha"].astype(str), y=df_hist["Recuperado acumulado"], marker_color=PAC_TEAL))
                 apply_layout(fig_hist, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
                 st.plotly_chart(fig_hist, use_container_width=True)
+with tab8:
+    st.markdown('<div class="sec">📋 Indicadores Cierre de Mes — Junio 2026</div>', unsafe_allow_html=True)
+
+    for _k, _v in [("rem_df",None),("rem_cols",{}),("gest_df",None),("gest_cols",{}),
+                   ("pag_df",None),("pag_cols",{}),("prom_df",None),("prom_cols",{}),("pag_tabla_df",None)]:
+        if _k not in st.session_state:
+            st.session_state[_k] = _v
+
+    with st.expander("📁 Archivos fuente — cargar o actualizar",
+                     expanded=(st.session_state.rem_df is None and st.session_state.gest_df is None)):
+        cu1, cu2, cu3, cu4 = st.columns(4)
+
+        # ── Cartera / Remesa ──
+        with cu1:
+            st.markdown("**📋 Cartera / Remesa**")
+            f_rem = st.file_uploader("Remesa asignación (.xlsx)", type=["xlsx"], key="rem_uploader")
+            if f_rem:
+                try:
+                    df_r = pd.read_excel(f_rem, engine="openpyxl")
+                    cl = {c.lower().strip(): c for c in df_r.columns}
+                    rc_ = {}
+                    for clave, opts in [
+                        ("id",         ("codigo_de_cliente","codigo_cliente","id","folio","cuenta")),
+                        ("saldo",      ("valor_saldo_deuda","saldo_insoluto","saldo","deuda")),
+                        ("segmento",   ("segmento_nombre","segmentacion_rep","segmentacion","camino")),
+                        ("edad",       ("edad_consultora","edad")),
+                        ("zona",       ("zona",)),
+                        ("estado_geo", ("estado","direccion_de_residencia_estado")),
+                        ("temporalidad",("temporalidad","tramo")),
+                        ("campana",    ("campana_numero","campana","campaña")),
+                        ("dias_mora",  ("dias_de_morosidad","dias_mora","aging_de_morosidad")),
+                    ]:
+                        for o in opts:
+                            if o in cl: rc_[clave] = cl[o]; break
+                    if "saldo" in rc_:
+                        df_r[rc_["saldo"]] = pd.to_numeric(df_r[rc_["saldo"]], errors="coerce").fillna(0)
+                    if "edad" in rc_:
+                        df_r[rc_["edad"]] = pd.to_numeric(df_r[rc_["edad"]], errors="coerce").fillna(0)
+                    if "campana" in rc_:
+                        df_r[rc_["campana"]] = pd.to_numeric(df_r[rc_["campana"]], errors="coerce").fillna(0)
+                    if "dias_mora" in rc_ and "temporalidad" not in rc_:
+                        df_r[rc_["dias_mora"]] = pd.to_numeric(df_r[rc_["dias_mora"]], errors="coerce").fillna(0)
+                        df_r["Temporalidad_R"] = df_r[rc_["dias_mora"]].apply(pac_temporalidad)
+                        rc_["temporalidad"] = "Temporalidad_R"
+                    st.session_state.rem_df = df_r; st.session_state.rem_cols = rc_
+                    st.success(f"✅ {len(df_r):,} cuentas")
+                    st.caption(", ".join(f"`{v}`" for v in rc_.values()))
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+        # ── Gestión de llamadas ──
+        with cu2:
+            st.markdown("**📞 Gestión de llamadas**")
+            f_gest = st.file_uploader("Vici llamadas (.xlsx)", type=["xlsx"], key="gest_uploader")
+            if f_gest:
+                try:
+                    df_g = pd.read_excel(f_gest, engine="openpyxl")
+                    cl = {c.lower().strip(): c for c in df_g.columns}
+                    gc_ = {}
+                    for clave, opts in [
+                        ("id",       ("codigo_de_cliente","codigo_cliente","id","folio","cuenta","numero_de_cliente")),
+                        ("resultado",("resultado","resultado_llamada","resultado_gestion","status","contactado")),
+                        ("hora",     ("hora_llamada","hora","hora_gestion")),
+                        ("canal",    ("canal","tipo_gestion","tipo_llamada","medio","tipo")),
+                        ("asesor",   ("asesor","agente","usuario","ejecutivo")),
+                        ("fecha",    ("fecha","fecha_llamada","fecha_gestion")),
+                        ("duracion", ("duracion_seg","duracion","segundos")),
+                    ]:
+                        for o in opts:
+                            if o in cl: gc_[clave] = cl[o]; break
+                    # detectar contactos
+                    if "resultado" in gc_:
+                        no_c = ["no contacto","no_contacto","no contesto","no contestó","buzon","buzón","ocupado","no localizado","no encontrado"]
+                        si_c = ["contacto","contactado","promesa","acuerdo","compromiso","localizado","si hablo","habló","hablo"]
+                        df_g["_contacto"] = df_g[gc_["resultado"]].astype(str).str.lower().str.strip().apply(
+                            lambda x: (not any(p in x for p in no_c)) and any(p in x for p in si_c)
+                        )
+                    st.session_state.gest_df = df_g; st.session_state.gest_cols = gc_
+                    st.success(f"✅ {len(df_g):,} gestiones")
+                    st.caption(", ".join(f"`{v}`" for v in gc_.values()))
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+        # ── Pagos / Recuperación ──
+        with cu3:
+            st.markdown("**💰 Pagos / Recuperación**")
+            f_pag = st.file_uploader("Pagos del mes (.xlsx)", type=["xlsx"], key="pag_uploader")
+            if f_pag:
+                try:
+                    df_p = pd.read_excel(f_pag, engine="openpyxl")
+                    cl = {c.lower().strip(): c for c in df_p.columns}
+                    pc_ = {}
+                    for clave, opts in [
+                        ("id",    ("codigo_de_cliente","codigo_cliente","id","folio","cuenta")),
+                        ("monto", ("monto_pagado","monto","pago","importe_pago","importe")),
+                        ("fecha", ("fecha_pago","fecha","date")),
+                        ("asesor",("asesor","agente","ejecutivo")),
+                    ]:
+                        for o in opts:
+                            if o in cl: pc_[clave] = cl[o]; break
+                    if "monto" in pc_:
+                        df_p[pc_["monto"]] = pd.to_numeric(df_p[pc_["monto"]], errors="coerce").fillna(0)
+                    st.session_state.pag_df = df_p; st.session_state.pag_cols = pc_
+                    st.success(f"✅ {len(df_p):,} pagos")
+                    st.caption(", ".join(f"`{v}`" for v in pc_.values()))
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+        # ── Promesas de pago ──
+        with cu4:
+            st.markdown("**🤝 Promesas de pago**")
+            f_prom = st.file_uploader("Halo promesas (.xlsx)", type=["xlsx"], key="prom_uploader")
+            if f_prom:
+                try:
+                    df_pm = pd.read_excel(f_prom, engine="openpyxl")
+                    cl = {c.lower().strip(): c for c in df_pm.columns}
+                    prc_ = {}
+                    for clave, opts in [
+                        ("id",     ("codigo_de_cliente","codigo_cliente","id","folio","cuenta")),
+                        ("monto",  ("monto_promesa","monto","importe_promesa","importe")),
+                        ("fecha",  ("fecha_promesa","fecha","date")),
+                        ("cumplida",("cumplida","pagado","estatus","status","resultado")),
+                    ]:
+                        for o in opts:
+                            if o in cl: prc_[clave] = cl[o]; break
+                    if "monto" in prc_:
+                        df_pm[prc_["monto"]] = pd.to_numeric(df_pm[prc_["monto"]], errors="coerce").fillna(0)
+                    st.session_state.prom_df = df_pm; st.session_state.prom_cols = prc_
+                    st.success(f"✅ {len(df_pm):,} promesas")
+                    st.caption(", ".join(f"`{v}`" for v in prc_.values()))
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+        # ── Tabla de pagos diarios (TABLA_DE_PAGOS) ──
+        st.markdown("---")
+        st.markdown("**📅 Tabla de pagos diarios por Temporalidad**")
+        f_ptab = st.file_uploader("TABLA DE PAGOS (fecha + T1-T7) (.xlsx)", type=["xlsx"], key="ptab_uploader")
+        if f_ptab:
+            try:
+                df_pt = pd.read_excel(f_ptab, engine="openpyxl")
+                fec_c = next((c for c in df_pt.columns if "fecha" in str(c).lower()), None)
+                t_cs  = [c for c in df_pt.columns if str(c).upper() in ["T1","T2","T3","T4","T5","T6","T7"]]
+                tot_c = next((c for c in df_pt.columns if "total" in str(c).lower()), None)
+                if fec_c and t_cs:
+                    df_pt[fec_c] = pd.to_datetime(df_pt[fec_c], errors="coerce")
+                    for tc in t_cs + ([tot_c] if tot_c else []):
+                        df_pt[tc] = pd.to_numeric(df_pt[tc], errors="coerce").fillna(0)
+                    st.session_state.pag_tabla_df = {"df": df_pt, "fecha": fec_c, "t_cols": t_cs, "total": tot_c}
+                    st.success(f"✅ {len(df_pt):,} días cargados")
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    st.markdown("---")
+    ind1, ind2, ind3 = st.tabs(["📋 Asignación", "💰 Recuperación", "📞 Gestión"])
+
+    # ─── IND1: ASIGNACIÓN ───
+    with ind1:
+        rem = st.session_state.rem_df
+        rc  = st.session_state.rem_cols
+        if rem is None:
+            st.info("Sube el archivo **Cartera / Remesa** para ver los indicadores de asignación.")
+        else:
+            n_ctas  = len(rem)
+            saldo_r = rem[rc["saldo"]].sum() if "saldo" in rc else None
+            a1,a2,a3 = st.columns(3)
+            a1.metric("Cuentas asignadas", f"{n_ctas:,}")
+            if saldo_r is not None:
+                a2.metric("Saldo total asignado", f"${saldo_r/1e6:.2f}M")
+                a3.metric("Saldo promedio por cuenta", f"${saldo_r/n_ctas:,.0f}")
+
+            st.markdown("---")
+            # Por temporalidad
+            if "temporalidad" in rc:
+                st.markdown("**Asignación por Temporalidad**")
+                if "saldo" in rc:
+                    gt = rem.groupby(rc["temporalidad"]).agg(
+                        Cuentas=(rc["temporalidad"],"count"), Saldo=(rc["saldo"],"sum")
+                    ).reset_index()
+                    gt = gt.set_index(rc["temporalidad"]).reindex(orden_t).fillna(0).reset_index()
+                    gt.columns = ["Temporalidad","Cuentas","Saldo"]
+                    c_t1, c_t2 = st.columns(2)
+                    with c_t1:
+                        fig_at = go.Figure(go.Bar(x=gt["Temporalidad"], y=gt["Cuentas"], marker_color=PAC_TEAL,
+                            text=gt["Cuentas"].map("{:,}".format), textposition="outside"))
+                        apply_layout(fig_at, height=280, title="Cuentas")
+                        st.plotly_chart(fig_at, use_container_width=True)
+                    with c_t2:
+                        fig_as = go.Figure(go.Bar(x=gt["Temporalidad"], y=gt["Saldo"], marker_color=PAC_NAVY,
+                            text=[f"${v/1e6:.1f}M" for v in gt["Saldo"]], textposition="outside"))
+                        apply_layout(fig_as, height=280, title="Saldo", yaxis=dict(tickprefix="$", tickformat=",.0f"))
+                        st.plotly_chart(fig_as, use_container_width=True)
+                    st.dataframe(gt.style.format({"Cuentas":"{:,}","Saldo":"${:,.0f}"}), use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+            c_c1, c_c2 = st.columns(2)
+            with c_c1:
+                if "segmento" in rc:
+                    st.markdown("**Por Camino de Crecimiento**")
+                    if "saldo" in rc:
+                        gs = rem.groupby(rc["segmento"]).agg(Cuentas=(rc["segmento"],"count"), Saldo=(rc["saldo"],"sum")).reset_index()
+                        gs.columns = ["Segmento","Cuentas","Saldo"]
+                    else:
+                        gs = rem[rc["segmento"]].value_counts().reset_index(); gs.columns = ["Segmento","Cuentas"]
+                    gs = gs.sort_values("Cuentas", ascending=False)
+                    fig_seg = go.Figure(go.Bar(x=gs["Segmento"], y=gs["Cuentas"], marker_color=PAC_AMBER,
+                        text=gs["Cuentas"].map("{:,}".format), textposition="outside"))
+                    apply_layout(fig_seg, height=280)
+                    st.plotly_chart(fig_seg, use_container_width=True)
+            with c_c2:
+                if "campana" in rc:
+                    st.markdown("**Inicio vs Establecida**")
+                    rem["_TipoCta"] = rem[rc["campana"]].apply(lambda x: "Inicio" if x == 1 else "Establecida")
+                    if "saldo" in rc:
+                        gi = rem.groupby("_TipoCta").agg(Cuentas=("_TipoCta","count"), Saldo=(rc["saldo"],"sum")).reset_index()
+                    else:
+                        gi = rem["_TipoCta"].value_counts().reset_index(); gi.columns = ["_TipoCta","Cuentas"]
+                    fig_ini = go.Figure(go.Pie(labels=gi["_TipoCta"], values=gi["Cuentas"], hole=0.55,
+                        marker_colors=[PAC_TEAL, PAC_AMBER]))
+                    apply_layout(fig_ini, height=280)
+                    st.plotly_chart(fig_ini, use_container_width=True)
+                    if "saldo" in rc:
+                        st.dataframe(gi.rename(columns={"_TipoCta":"Tipo"}).style.format({"Cuentas":"{:,}","Saldo":"${:,.0f}"}),
+                            use_container_width=True, hide_index=True)
+
+            if "edad" in rc:
+                st.markdown("---")
+                st.markdown("**Asignación por Edad**")
+                bins=[0,30,45,60,200]; lbls=["18–30","31–45","46–60","61+"]
+                rem["_EdadR"] = pd.cut(rem[rc["edad"]], bins=bins, labels=lbls, right=True, include_lowest=True).astype(str)
+                if "saldo" in rc:
+                    ge = rem.groupby("_EdadR").agg(Cuentas=("_EdadR","count"), Saldo=(rc["saldo"],"sum")).reset_index()
+                    ge = ge.set_index("_EdadR").reindex(lbls).fillna(0).reset_index()
+                    ge.columns = ["Edad","Cuentas","Saldo"]
+                    c_e1, c_e2 = st.columns(2)
+                    with c_e1:
+                        fig_ea = go.Figure(go.Bar(x=ge["Edad"], y=ge["Cuentas"], marker_color=PAC_CORAL,
+                            text=ge["Cuentas"].map("{:,}".format), textposition="outside"))
+                        apply_layout(fig_ea, height=260, title="Cuentas")
+                        st.plotly_chart(fig_ea, use_container_width=True)
+                    with c_e2:
+                        fig_es = go.Figure(go.Bar(x=ge["Edad"], y=ge["Saldo"], marker_color=PAC_RED,
+                            text=[f"${v/1e6:.1f}M" for v in ge["Saldo"]], textposition="outside"))
+                        apply_layout(fig_es, height=260, title="Saldo", yaxis=dict(tickprefix="$", tickformat=",.0f"))
+                        st.plotly_chart(fig_es, use_container_width=True)
+
+    # ─── IND2: RECUPERACIÓN ───
+    with ind2:
+        pag  = st.session_state.pag_df
+        pc   = st.session_state.pag_cols
+        pt   = st.session_state.pag_tabla_df
+        rem2 = st.session_state.rem_df
+        rc2  = st.session_state.rem_cols
+        prom2= st.session_state.prom_df
+        prc2 = st.session_state.prom_cols
+
+        if pag is None and pt is None:
+            st.info("Sube el archivo de **Pagos** o la **Tabla de pagos diarios** para ver recuperación.")
+        else:
+            if pag is not None and "monto" in pc:
+                recup_total = pag[pc["monto"]].sum()
+                n_ctas_pago = pag[pc["id"]].nunique() if "id" in pc else None
+                n_total_ctas = len(rem2) if rem2 is not None else None
+
+                r1,r2,r3,r4 = st.columns(4)
+                r1.metric("Recuperación acumulada", f"${recup_total/1e6:.2f}M")
+                if n_ctas_pago:
+                    r2.metric("Cuentas con pago", f"{n_ctas_pago:,}")
+                    r3.metric("Monto prom. por cuenta", f"${recup_total/n_ctas_pago:,.0f}")
+                if n_ctas_pago and n_total_ctas:
+                    r4.metric("% cuentas que recuperaron", f"{n_ctas_pago/n_total_ctas*100:.1f}%")
+
+                # Recuperación por temporalidad (desde pagos + cartera)
+                if rem2 is not None and "id" in pc and "id" in rc2 and "temporalidad" in rc2:
+                    st.markdown("---")
+                    st.markdown("**Recuperación por Temporalidad**")
+                    pag_temp = pag.groupby(pc["id"])[pc["monto"]].sum().reset_index()
+                    pag_temp.columns = ["_id","Recuperado"]
+                    cartera_t = rem2[[rc2["id"], rc2["temporalidad"]]].rename(columns={rc2["id"]:"_id", rc2["temporalidad"]:"Temporalidad"})
+                    pt_merged = pag_temp.merge(cartera_t, on="_id", how="left")
+                    rec_t = pt_merged.groupby("Temporalidad")["Recuperado"].agg(
+                        Recuperado="sum", CuentasConPago=lambda s: (s>0).sum()
+                    ).reset_index() if False else pt_merged.groupby("Temporalidad").agg(
+                        Recuperado=("Recuperado","sum"), CuentasConPago=("Recuperado",lambda s:(s>0).sum())
+                    ).reset_index()
+                    rec_t = rec_t.set_index("Temporalidad").reindex(orden_t).fillna(0).reset_index()
+                    c_rt1, c_rt2 = st.columns(2)
+                    with c_rt1:
+                        fig_rt = go.Figure(go.Bar(x=rec_t["Temporalidad"], y=rec_t["Recuperado"], marker_color=PAC_TEAL2,
+                            text=[f"${v/1e3:.0f}K" for v in rec_t["Recuperado"]], textposition="outside"))
+                        apply_layout(fig_rt, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
+                        st.plotly_chart(fig_rt, use_container_width=True)
+                    with c_rt2:
+                        fig_nrt = go.Figure(go.Bar(x=rec_t["Temporalidad"], y=rec_t["CuentasConPago"], marker_color=PAC_TEAL,
+                            text=rec_t["CuentasConPago"].map("{:,}".format), textposition="outside"))
+                        apply_layout(fig_nrt, height=280, title="Cuentas con pago")
+                        st.plotly_chart(fig_nrt, use_container_width=True)
+
+                # Pagos parciales vs totales
+                if rem2 is not None and "id" in rc2 and "saldo" in rc2 and "id" in pc:
+                    st.markdown("---")
+                    st.markdown("**Pagos parciales vs totales**")
+                    pag_sum = pag.groupby(pc["id"])[pc["monto"]].sum().reset_index(name="TotalPagado")
+                    pag_sum["_id"] = pag_sum[pc["id"]]
+                    cartera_s = rem2[[rc2["id"], rc2["saldo"]]].rename(columns={rc2["id"]:"_id", rc2["saldo"]:"Saldo"})
+                    pag_tipo = pag_sum.merge(cartera_s, on="_id", how="left")
+                    pag_tipo["TipoPago"] = pag_tipo.apply(
+                        lambda r: "Total" if r["TotalPagado"] >= r["Saldo"] else "Parcial", axis=1
+                    )
+                    tipo_cnt = pag_tipo["TipoPago"].value_counts().reset_index(); tipo_cnt.columns = ["Tipo","Cuentas"]
+                    p1,p2 = st.columns(2)
+                    with p1:
+                        fig_tp = go.Figure(go.Pie(labels=tipo_cnt["Tipo"], values=tipo_cnt["Cuentas"], hole=0.55,
+                            marker_colors=[PAC_TEAL2, PAC_AMBER]))
+                        apply_layout(fig_tp, height=260)
+                        st.plotly_chart(fig_tp, use_container_width=True)
+                    with p2:
+                        st.dataframe(tipo_cnt.style.format({"Cuentas":"{:,}"}), use_container_width=True, hide_index=True)
+
+                # Por asesor
+                if "asesor" in pc:
+                    st.markdown("---")
+                    st.markdown("**Recuperación por Asesor (Top 10)**")
+                    asesor_r = pag.groupby(pc["asesor"])[pc["monto"]].sum().sort_values(ascending=False).head(10).reset_index()
+                    asesor_r.columns = ["Asesor","Recuperado"]
+                    fig_ar = go.Figure(go.Bar(x=asesor_r["Asesor"], y=asesor_r["Recuperado"], marker_color=PAC_TEAL,
+                        text=[f"${v/1e3:.0f}K" for v in asesor_r["Recuperado"]], textposition="outside"))
+                    apply_layout(fig_ar, height=300, yaxis=dict(tickprefix="$", tickformat=",.0f"))
+                    st.plotly_chart(fig_ar, use_container_width=True)
+
+            # Tabla diaria
+            if pt is not None:
+                st.markdown("---")
+                st.markdown("**Recuperación diaria por Temporalidad**")
+                df_pt = pt["df"]; fec_c = pt["fecha"]; t_cs2 = pt["t_cols"]; tot_c2 = pt["total"]
+                df_clean = df_pt.dropna(subset=[fec_c]).copy()
+                colors_t = [PAC_TEAL, PAC_TEAL2, PAC_AMBER, PAC_CORAL, PAC_RED, PAC_NAVY, "#9b59b6"]
+                fig_d = go.Figure()
+                for tc, clr in zip(t_cs2, colors_t):
+                    fig_d.add_trace(go.Bar(name=str(tc), x=df_clean[fec_c].dt.strftime("%d/%m"), y=df_clean[tc], marker_color=clr))
+                apply_layout(fig_d, height=340, barmode="stack", yaxis=dict(tickprefix="$", tickformat=",.0f"),
+                             legend=dict(orientation="h", y=1.15))
+                st.plotly_chart(fig_d, use_container_width=True)
+                fmt2 = {c: "${:,.0f}" for c in t_cs2 + ([tot_c2] if tot_c2 else [])}
+                cols_show = [fec_c] + t_cs2 + ([tot_c2] if tot_c2 else [])
+                tot_row = {fec_c: "TOTAL"}
+                for tc in t_cs2: tot_row[tc] = df_clean[tc].sum()
+                if tot_c2: tot_row[tot_c2] = df_clean[tot_c2].sum()
+                df_show = pd.concat([df_clean[cols_show], pd.DataFrame([tot_row])], ignore_index=True)
+                st.dataframe(df_show.style.format(fmt2), use_container_width=True, hide_index=True)
+
+            # Acuerdos
+            if prom2 is not None:
+                st.markdown("---")
+                st.markdown("**Acuerdos realizados vs cumplidos**")
+                total_ac = len(prom2)
+                if "cumplida" in prc2:
+                    prom2["_pag"] = prom2[prc2["cumplida"]].astype(str).str.lower().isin(
+                        ["1","true","si","sí","pagado","cumplida","cumplido","pagada","yes","verdadero"]
+                    )
+                    pagados = int(prom2["_pag"].sum())
+                    pr1,pr2,pr3 = st.columns(3)
+                    pr1.metric("Acuerdos realizados", f"{total_ac:,}")
+                    pr2.metric("Acuerdos cumplidos", f"{pagados:,}")
+                    pr3.metric("% cumplimiento", f"{pagados/total_ac*100:.1f}%" if total_ac else "0%")
+                    if "monto" in prc2:
+                        m_ac = prom2[prc2["monto"]].sum()
+                        m_pag = prom2[prom2["_pag"]][prc2["monto"]].sum()
+                        pr4,pr5 = st.columns(2)
+                        pr4.metric("Monto acordado", f"${m_ac/1e6:.2f}M")
+                        pr5.metric("Monto recuperado vía acuerdos", f"${m_pag/1e6:.2f}M")
+
+            # Por edad
+            if pag is not None and rem2 is not None and "id" in pc and "id" in rc2 and "edad" in rc2 and "monto" in pc:
+                st.markdown("---")
+                st.markdown("**Recuperación por Edad**")
+                pag_e = pag.groupby(pc["id"])[pc["monto"]].sum().reset_index()
+                pag_e.columns = ["_id","Recuperado"]
+                rem_e = rem2[[rc2["id"], rc2["edad"]]].rename(columns={rc2["id"]:"_id"})
+                merged_e = pag_e.merge(rem_e, on="_id", how="left")
+                bins=[0,30,45,60,200]; lbls=["18–30","31–45","46–60","61+"]
+                merged_e["_EdadRec"] = pd.cut(merged_e[rc2["edad"]], bins=bins, labels=lbls, right=True, include_lowest=True).astype(str)
+                ge_r = merged_e.groupby("_EdadRec")["Recuperado"].sum().reindex(lbls).fillna(0)
+                fig_er = go.Figure(go.Bar(x=lbls, y=ge_r.values, marker_color=PAC_CORAL,
+                    text=[f"${v/1e3:.0f}K" for v in ge_r.values], textposition="outside"))
+                apply_layout(fig_er, height=260, yaxis=dict(tickprefix="$", tickformat=",.0f"))
+                st.plotly_chart(fig_er, use_container_width=True)
+
+    # ─── IND3: GESTIÓN ───
+    with ind3:
+        gest = st.session_state.gest_df
+        gc   = st.session_state.gest_cols
+        rem3 = st.session_state.rem_df
+        rc3  = st.session_state.rem_cols
+
+        if gest is None:
+            st.info("Sube el archivo **Gestión de llamadas (Vici)** para ver estos indicadores.")
+        else:
+            total_g = len(gest)
+            total_c = int(gest["_contacto"].sum()) if "_contacto" in gest.columns else None
+            pct_c   = total_c / total_g * 100 if total_c is not None and total_g else 0
+            n_ctas_g = gest[gc["id"]].nunique() if "id" in gc else None
+
+            g1,g2,g3,g4 = st.columns(4)
+            g1.metric("Total gestiones", f"{total_g:,}")
+            if total_c is not None:
+                g2.metric("Contactos efectivos", f"{total_c:,}")
+                g3.metric("% Contactación", f"{pct_c:.1f}%")
+            if n_ctas_g:
+                g4.metric("Intentos prom. / cuenta", f"{total_g/n_ctas_g:.1f}")
+
+            if "resultado" in gc:
+                st.markdown("---")
+                st.markdown("**Distribución de resultados**")
+                res_d = gest[gc["resultado"]].value_counts().head(15).reset_index()
+                res_d.columns = ["Resultado","Gestiones"]
+                fig_rd = go.Figure(go.Bar(x=res_d["Resultado"], y=res_d["Gestiones"], marker_color=PAC_TEAL,
+                    text=res_d["Gestiones"].map("{:,}".format), textposition="outside"))
+                apply_layout(fig_rd, height=300)
+                st.plotly_chart(fig_rd, use_container_width=True)
+
+            # % contactación por temporalidad
+            if rem3 is not None and "id" in gc and "id" in rc3 and "temporalidad" in rc3 and "_contacto" in gest.columns:
+                st.markdown("---")
+                st.markdown("**% Contactación por Temporalidad**")
+                gest_t = gest.merge(
+                    rem3[[rc3["id"], rc3["temporalidad"]]].rename(columns={rc3["id"]:"_idm", rc3["temporalidad"]:"Temporalidad"}),
+                    left_on=gc["id"], right_on="_idm", how="left"
+                )
+                gtg = gest_t.groupby("Temporalidad").agg(
+                    Gestiones=("Temporalidad","count"), Contactos=("_contacto","sum")
+                ).reset_index()
+                gtg["% Contactación"] = (gtg["Contactos"]/gtg["Gestiones"]*100).round(1)
+                gtg = gtg.set_index("Temporalidad").reindex(orden_t).fillna(0).reset_index()
+                fig_gtg = go.Figure(go.Bar(x=gtg["Temporalidad"], y=gtg["% Contactación"], marker_color=PAC_TEAL2,
+                    text=[f"{v:.1f}%" for v in gtg["% Contactación"]], textposition="outside"))
+                apply_layout(fig_gtg, height=280, yaxis=dict(ticksuffix="%", range=[0, 110]))
+                st.plotly_chart(fig_gtg, use_container_width=True)
+
+            # % contactación por camino de crecimiento
+            if rem3 is not None and "id" in gc and "id" in rc3 and "segmento" in rc3 and "_contacto" in gest.columns:
+                st.markdown("---")
+                st.markdown("**% Contactación por Camino de Crecimiento**")
+                gest_s = gest.merge(
+                    rem3[[rc3["id"], rc3["segmento"]]].rename(columns={rc3["id"]:"_idm2", rc3["segmento"]:"Segmento"}),
+                    left_on=gc["id"], right_on="_idm2", how="left"
+                )
+                gsg = gest_s.groupby("Segmento").agg(
+                    Gestiones=("Segmento","count"), Contactos=("_contacto","sum")
+                ).reset_index()
+                gsg["% Contactación"] = (gsg["Contactos"]/gsg["Gestiones"]*100).round(1)
+                fig_gsg = go.Figure(go.Bar(x=gsg["Segmento"], y=gsg["% Contactación"], marker_color=PAC_AMBER,
+                    text=[f"{v:.1f}%" for v in gsg["% Contactación"]], textposition="outside"))
+                apply_layout(fig_gsg, height=280, yaxis=dict(ticksuffix="%", range=[0, 110]))
+                st.plotly_chart(fig_gsg, use_container_width=True)
+
+            # % contactación por hora
+            if "hora" in gc:
+                st.markdown("---")
+                st.markdown("**% Contactación por Hora del día**")
+                gest_h = gest.copy()
+                try:
+                    gest_h["_hora"] = pd.to_datetime(gest_h[gc["hora"]], format="%H:%M:%S", errors="coerce").dt.hour
+                    nulls = gest_h["_hora"].isna()
+                    gest_h.loc[nulls,"_hora"] = pd.to_numeric(gest_h.loc[nulls, gc["hora"]], errors="coerce")
+                except Exception:
+                    gest_h["_hora"] = pd.to_numeric(gest_h[gc["hora"]], errors="coerce")
+                gest_h = gest_h[gest_h["_hora"].notna() & (gest_h["_hora"] >= 0)]
+                gest_h["_hora"] = gest_h["_hora"].astype(int)
+                if "_contacto" not in gest_h.columns:
+                    gest_h["_contacto"] = False
+                ghg = gest_h.groupby("_hora").agg(
+                    Gestiones=("_hora","count"), Contactos=("_contacto","sum")
+                ).reset_index()
+                ghg["% Contactación"] = (ghg["Contactos"]/ghg["Gestiones"]*100).round(1)
+                fig_ghg = go.Figure()
+                fig_ghg.add_trace(go.Bar(name="Gestiones", x=ghg["_hora"], y=ghg["Gestiones"], marker_color="#cbd5e1"))
+                fig_ghg.add_trace(go.Scatter(name="% Contactación", x=ghg["_hora"], y=ghg["% Contactación"],
+                    mode="lines+markers", marker_color=PAC_RED, yaxis="y2"))
+                fig_ghg.update_layout(yaxis2=dict(overlaying="y", side="right", ticksuffix="%", showgrid=False, range=[0,100]))
+                apply_layout(fig_ghg, height=320, legend=dict(orientation="h", y=1.15))
+                st.plotly_chart(fig_ghg, use_container_width=True)
+
+# ══════════════════════════════════════════════
+# TAB 9 — OPERACIÓN
+# ══════════════════════════════════════════════
+with tab9:
+    st.markdown('<div class="sec">⚙️ Operación — Junio 2026</div>', unsafe_allow_html=True)
+    gest9 = st.session_state.get("gest_df")
+    gc9   = st.session_state.get("gest_cols", {})
+    prom9 = st.session_state.get("prom_df")
+    prc9  = st.session_state.get("prom_cols", {})
+
+    if gest9 is None and prom9 is None:
+        st.info("Sube los archivos desde la pestaña **'8 · Indicadores Cierre de Mes'** para ver la operación.")
+    else:
+        if gest9 is not None:
+            st.markdown("### 📞 Actividad de Gestión")
+            total_g9 = len(gest9)
+            n_ctas9  = gest9[gc9["id"]].nunique() if "id" in gc9 else None
+
+            total_llamadas9, total_sms9 = 0, 0
+            if "canal" in gc9:
+                canal9 = gest9[gc9["canal"]].astype(str).str.upper()
+                total_llamadas9 = int(canal9.str.contains("LLAMADA|CALL|VOZ|VOICE|TELEFON", regex=True).sum())
+                total_sms9      = int(canal9.str.contains("SMS|MENSAJE|TEXT|WHATSAPP", regex=True).sum())
+
+            op1,op2,op3,op4 = st.columns(4)
+            op1.metric("Total gestiones", f"{total_g9:,}")
+            op2.metric("Total llamadas",  f"{total_llamadas9:,}")
+            op3.metric("Total SMS / mensajes", f"{total_sms9:,}")
+            if n_ctas9:
+                op4.metric("Intentos prom. de gestión", f"{total_g9/n_ctas9:.1f}")
+
+            if "canal" in gc9:
+                st.markdown("---")
+                st.markdown("**Distribución por canal**")
+                canal_cnt9 = gest9[gc9["canal"]].value_counts().reset_index()
+                canal_cnt9.columns = ["Canal","Gestiones"]
+                c_can1, c_can2 = st.columns([1,2])
+                with c_can1:
+                    fig_can = go.Figure(go.Pie(labels=canal_cnt9["Canal"], values=canal_cnt9["Gestiones"], hole=0.55,
+                        marker_colors=[PAC_TEAL,PAC_AMBER,PAC_CORAL,PAC_NAVY,PAC_TEAL2,PAC_RED]))
+                    apply_layout(fig_can, height=300)
+                    st.plotly_chart(fig_can, use_container_width=True)
+                with c_can2:
+                    st.dataframe(canal_cnt9.style.format({"Gestiones":"{:,}"}), use_container_width=True, hide_index=True)
+
+            if "asesor" in gc9:
+                st.markdown("---")
+                st.markdown("**Top 10 asesores por gestiones**")
+                top9 = gest9.groupby(gc9["asesor"]).agg(Gestiones=(gc9["asesor"],"count")).reset_index()
+                top9.columns = ["Asesor","Gestiones"]
+                if "_contacto" in gest9.columns:
+                    top9_c = gest9.groupby(gc9["asesor"])["_contacto"].sum().reset_index(name="Contactos")
+                    top9_c.columns = ["Asesor","Contactos"]
+                    top9 = top9.merge(top9_c, on="Asesor", how="left")
+                    top9["% Contactación"] = (top9["Contactos"]/top9["Gestiones"]*100).round(1)
+                top9 = top9.sort_values("Gestiones", ascending=False).head(10)
+                fmt9 = {"Gestiones":"{:,}"}
+                if "% Contactación" in top9.columns:
+                    fmt9["% Contactación"] = "{:.1f}%"
+                fig_top9 = go.Figure(go.Bar(x=top9["Asesor"], y=top9["Gestiones"], marker_color=PAC_TEAL,
+                    text=top9["Gestiones"].map("{:,}".format), textposition="outside"))
+                apply_layout(fig_top9, height=300)
+                st.plotly_chart(fig_top9, use_container_width=True)
+                st.dataframe(top9.style.format(fmt9), use_container_width=True, hide_index=True)
+
+        if prom9 is not None:
+            st.markdown("---")
+            st.markdown("### 🤝 Acuerdos de pago")
+            total_ac9 = len(prom9)
+            opp1,opp2,opp3 = st.columns(3)
+            opp1.metric("Total acuerdos realizados", f"{total_ac9:,}")
+            if "cumplida" in prc9:
+                prom9["_pag9"] = prom9[prc9["cumplida"]].astype(str).str.lower().isin(
+                    ["1","true","si","sí","pagado","cumplida","cumplido","pagada","yes","verdadero"]
+                )
+                pag9 = int(prom9["_pag9"].sum())
+                opp2.metric("Acuerdos cumplidos", f"{pag9:,}")
+                opp3.metric("% cumplimiento", f"{pag9/total_ac9*100:.1f}%" if total_ac9 else "0%")
+                if "monto" in prc9:
+                    m_ac9  = prom9[prc9["monto"]].sum()
+                    m_pag9 = prom9[prom9["_pag9"]][prc9["monto"]].sum()
+                    opp4,opp5 = st.columns(2)
+                    opp4.metric("Monto acordado",  f"${m_ac9/1e6:.2f}M")
+                    opp5.metric("Monto recuperado vía acuerdos", f"${m_pag9/1e6:.2f}M")
+                fig_ac9 = go.Figure(go.Bar(
+                    x=["Realizados","Cumplidos"],
+                    y=[total_ac9, pag9],
+                    marker_color=[PAC_TEAL, PAC_TEAL2],
+                    text=[f"{total_ac9:,}", f"{pag9:,}"],
+                    textposition="outside",
+                ))
+                apply_layout(fig_ac9, height=280)
+                st.plotly_chart(fig_ac9, use_container_width=True)
+
+            if "fecha" in prc9:
+                st.markdown("**Acuerdos por día**")
+                prom9["_fec9"] = pd.to_datetime(prom9[prc9["fecha"]], errors="coerce")
+                ac_d9 = prom9.groupby("_fec9").size().reset_index(name="Acuerdos")
+                fig_acd9 = go.Figure(go.Bar(x=ac_d9["_fec9"].dt.strftime("%d/%m"), y=ac_d9["Acuerdos"], marker_color=PAC_AMBER,
+                    text=ac_d9["Acuerdos"].map("{:,}".format), textposition="outside"))
+                apply_layout(fig_acd9, height=260)
+                st.plotly_chart(fig_acd9, use_container_width=True)
