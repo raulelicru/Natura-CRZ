@@ -432,7 +432,7 @@ HORAS     = list(range(8, 21))
 
 # ── Cierre de mes ────────────────────────────
 META_TOTAL       = 6_000_000
-RECUPERADO_TOTAL = 4_954_931.88
+RECUPERADO_TOTAL = 5_091_147.00
 PROMESAS_GEN     = 1_240
 PROMESAS_CUMP    = 748
 PROMESAS_CAIDAS  = PROMESAS_GEN - PROMESAS_CUMP
