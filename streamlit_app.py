@@ -2231,15 +2231,108 @@ with tab8:
                 apply_layout(fig_ghg, height=320, legend=dict(orientation="h", y=1.15))
                 st.plotly_chart(fig_ghg, use_container_width=True)
 
+    # ─── IND4: OPERACIÓN (dentro de Indicadores Cierre de Mes) ───
+    with ind4:
+        if gest is None and sms_df is None:
+            st.info("Sube el archivo **Gestión (Vici)** en el sidebar y/o el archivo **SMS** en Archivos complementarios.")
+        else:
+            st.markdown("### 📞 Indicadores de Operación")
+
+            # Métricas de llamadas desde archivo Vici (col M = total llamadas, col AM = list_description)
+            if gest is not None:
+                total_llamadas = len(gest)
+                n_ctas_op = gest[gc["id"]].nunique() if "id" in gc else None
+
+                # Intentos por cuenta
+                intentos_prom = total_llamadas / n_ctas_op if n_ctas_op else 0
+
+                o1, o2, o3 = st.columns(3)
+                o1.metric("Total llamadas (Vici)", f"{total_llamadas:,}")
+                if n_ctas_op:
+                    o2.metric("Cuentas gestionadas", f"{n_ctas_op:,}")
+                    o3.metric("Intentos promedio / cuenta", f"{intentos_prom:.1f}")
+
+                # Distribución de llamadas por resultado (col AM = list_description)
+                if "resultado" in gc:
+                    st.markdown("---")
+                    st.markdown("**Distribución por resultado de llamada**")
+                    res_op = gest[gc["resultado"]].value_counts().head(15).reset_index()
+                    res_op.columns = ["Resultado","Llamadas"]
+                    fig_res_op = go.Figure(go.Bar(
+                        x=res_op["Resultado"], y=res_op["Llamadas"], marker_color=PAC_TEAL,
+                        text=res_op["Llamadas"].map("{:,}".format), textposition="outside"))
+                    apply_layout(fig_res_op, height=300)
+                    st.plotly_chart(fig_res_op, use_container_width=True)
+
+                # Llamadas por hora del día
+                if "hora" in gc:
+                    st.markdown("---")
+                    st.markdown("**Llamadas por hora del día**")
+                    gest_op = gest.copy()
+                    try:
+                        gest_op["_hora_op"] = pd.to_datetime(gest_op[gc["hora"]], format="%H:%M:%S", errors="coerce").dt.hour
+                        nulls_op = gest_op["_hora_op"].isna()
+                        gest_op.loc[nulls_op,"_hora_op"] = pd.to_numeric(gest_op.loc[nulls_op, gc["hora"]], errors="coerce")
+                    except Exception:
+                        gest_op["_hora_op"] = pd.to_numeric(gest_op[gc["hora"]], errors="coerce")
+                    gest_op = gest_op[gest_op["_hora_op"].notna() & (gest_op["_hora_op"] >= 0)]
+                    gest_op["_hora_op"] = gest_op["_hora_op"].astype(int)
+                    hora_cnt = gest_op.groupby("_hora_op").size().reset_index(name="Llamadas")
+                    fig_hora = go.Figure(go.Bar(
+                        x=hora_cnt["_hora_op"], y=hora_cnt["Llamadas"], marker_color=PAC_TEAL2,
+                        text=hora_cnt["Llamadas"].map("{:,}".format), textposition="outside"))
+                    apply_layout(fig_hora, height=280, xaxis=dict(title="Hora"))
+                    st.plotly_chart(fig_hora, use_container_width=True)
+
+            # SMS desde archivo complementario (col J = Descripcion)
+            if sms_df is not None:
+                st.markdown("---")
+                st.markdown("### 📱 Indicadores de SMS")
+                total_sms = len(sms_df)
+                cl_sms = {c.lower().strip(): c for c in sms_df.columns}
+                # Col J = Descripcion (resultado / estado del SMS)
+                desc_col = None
+                for opt in ("descripcion","descripción","description","resultado","status","estado"):
+                    if opt in cl_sms:
+                        desc_col = cl_sms[opt]; break
+
+                s1, s2 = st.columns(2)
+                s1.metric("Total SMS enviados", f"{total_sms:,}")
+
+                if desc_col:
+                    sms_res = sms_df[desc_col].value_counts().reset_index()
+                    sms_res.columns = ["Estado","Cantidad"]
+                    # Detectar exitosos/no exitosos
+                    exitosos_kw = ["entregado","delivered","enviado","exitoso","success","ok"]
+                    sms_df["_sms_ok"] = sms_df[desc_col].astype(str).str.lower().str.strip().apply(
+                        lambda x: any(k in x for k in exitosos_kw)
+                    )
+                    n_exit = int(sms_df["_sms_ok"].sum())
+                    pct_exit = n_exit / total_sms * 100 if total_sms else 0
+                    s2.metric("SMS exitosos", f"{n_exit:,} ({pct_exit:.1f}%)")
+
+                    c_s1, c_s2 = st.columns([1,2])
+                    with c_s1:
+                        fig_sms = go.Figure(go.Pie(
+                            labels=sms_res["Estado"], values=sms_res["Cantidad"], hole=0.55,
+                            marker_colors=[PAC_TEAL,PAC_AMBER,PAC_CORAL,PAC_RED,PAC_NAVY,PAC_TEAL2]))
+                        apply_layout(fig_sms, height=280)
+                        st.plotly_chart(fig_sms, use_container_width=True)
+                    with c_s2:
+                        st.dataframe(sms_res.style.format({"Cantidad":"{:,}"}), use_container_width=True, hide_index=True)
+                else:
+                    s2.metric("SMS exitosos", "—")
+                    st.caption("No se detectó columna de descripción/resultado en el archivo SMS.")
+
 # ══════════════════════════════════════════════
 # TAB 9 — OPERACIÓN
 # ══════════════════════════════════════════════
 with tab9:
     st.markdown('<div class="sec">⚙️ Operación — Junio 2026</div>', unsafe_allow_html=True)
     gest9 = df_gest_real
-    gc9   = _build_gest_cols(df_gest_real.copy()) if df_gest_real is not None else {}
+    gc9   = _build_gest_cols(gest9) if gest9 is not None else {}
     prom9 = df_prom_real
-    prc9  = _build_prom_cols(df_prom_real.copy()) if df_prom_real is not None else {}
+    prc9  = _build_prom_cols(prom9) if prom9 is not None else {}
 
     if gest9 is None and prom9 is None:
         st.info("Sube los archivos desde la pestaña **'8 · Indicadores Cierre de Mes'** para ver la operación.")
