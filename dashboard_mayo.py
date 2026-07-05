@@ -1145,7 +1145,7 @@ with tab1:
     c3.metric("Cumplimiento",         f"{RECUPERADO_TOTAL/META_TOTAL*100:.1f}%")
     c4.metric("Promesas generadas",   f"{PROMESAS_GEN:,}")
     c5.metric("Promesas caídas",      f"{PROMESAS_CAIDAS:,}",
-              delta=f"{PROMESAS_CAIDAS/PROMESAS_GEN*100:.0f}% caída", delta_color="inverse")
+              delta=f"{PROMESAS_CAIDAS/PROMESAS_GEN*100:.0f}% caída" if PROMESAS_GEN else "—", delta_color="inverse")
 
     st.markdown("---")
     col_l, col_r = st.columns([3, 2])
@@ -1185,10 +1185,11 @@ with tab1:
         st.plotly_chart(fig2, use_container_width=True)
 
     gap = META_TOTAL - RECUPERADO_TOTAL
+    _prom_pct = f"explican ~{PROMESAS_CAIDAS/PROMESAS_GEN*100:.0f}% del desvío. " if PROMESAS_GEN else ""
     st.info(
         f"**Brecha de recuperación: ${gap/1e6:.2f}M** — las **{PROMESAS_CAIDAS} promesas caídas** "
-        f"explican ~{PROMESAS_CAIDAS/PROMESAS_GEN*100:.0f}% del desvío. "
-        f"Los principales factores: sin liquidez ({df_motivos.iloc[0]['Casos']} casos) "
+        + _prom_pct
+        + f"Los principales factores: sin liquidez ({df_motivos.iloc[0]['Casos']} casos) "
         f"y contacto perdido ({df_motivos.iloc[1]['Casos']} sin rellamada efectiva)."
     )
 
