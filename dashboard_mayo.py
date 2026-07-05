@@ -1145,7 +1145,7 @@ with tab1:
     c3.metric("Cumplimiento",         f"{RECUPERADO_TOTAL/META_TOTAL*100:.1f}%")
     c4.metric("Promesas generadas",   f"{PROMESAS_GEN:,}")
     c5.metric("Promesas caídas",      f"{PROMESAS_CAIDAS:,}",
-              delta=f"{PROMESAS_CAIDAS/PROMESAS_GEN*100:.0f}% caída", delta_color="inverse")
+              delta=f"{PROMESAS_CAIDAS/PROMESAS_GEN*100:.0f}% caída" if PROMESAS_GEN else "—", delta_color="inverse")
 
     st.markdown("---")
     col_l, col_r = st.columns([3, 2])
@@ -1185,10 +1185,11 @@ with tab1:
         st.plotly_chart(fig2, use_container_width=True)
 
     gap = META_TOTAL - RECUPERADO_TOTAL
+    _prom_pct = f"explican ~{PROMESAS_CAIDAS/PROMESAS_GEN*100:.0f}% del desvío. " if PROMESAS_GEN else ""
     st.info(
         f"**Brecha de recuperación: ${gap/1e6:.2f}M** — las **{PROMESAS_CAIDAS} promesas caídas** "
-        f"explican ~{PROMESAS_CAIDAS/PROMESAS_GEN*100:.0f}% del desvío. "
-        f"Los principales factores: sin liquidez ({df_motivos.iloc[0]['Casos']} casos) "
+        + _prom_pct
+        + f"Los principales factores: sin liquidez ({df_motivos.iloc[0]['Casos']} casos) "
         f"y contacto perdido ({df_motivos.iloc[1]['Casos']} sin rellamada efectiva)."
     )
 
@@ -2163,61 +2164,93 @@ with tab7:
 # ══════════════════════════════════════════════
 # ── Helpers de detección de columnas (tab8/tab9) ──
 def _build_rem_cols(df):
-        cl = {c.lower().strip(): c for c in df.columns}
-        rc_ = {}
-        for clave, opts in [
-            ("id",           ("codigo_de_cliente","codigo_cliente","id","folio","cuenta")),
-            ("saldo",        ("valor_saldo_deuda","saldo_insoluto","saldo","deuda")),
-            ("segmento",     ("segmento_nombre","segmentacion_rep","segmentacion","camino")),
-            ("edad",         ("edad_consultora","edad")),
-            ("zona",         ("zona",)),
-            ("estado_geo",   ("estado","direccion_de_residencia_estado")),
-            ("temporalidad", ("temporalidad","tramo")),
-            ("campana",      ("campana_numero","campana","campaña")),
-            ("dias_mora",    ("dias_de_morosidad","dias_mora","aging_de_morosidad")),
-        ]:
-            for o in opts:
-                if o in cl: rc_[clave] = cl[o]; break
-        for f2 in ("saldo","edad","campana","dias_mora"):
-            if f2 in rc_:
-                df[rc_[f2]] = pd.to_numeric(df[rc_[f2]], errors="coerce").fillna(0)
-        if "dias_mora" in rc_ and "temporalidad" not in rc_:
-            df["Temporalidad_R"] = df[rc_["dias_mora"]].apply(pac_temporalidad)
-            rc_["temporalidad"] = "Temporalidad_R"
-        return rc_
+    cl = {c.lower().strip(): c for c in df.columns}
+    rc_ = {}
+    for clave, opts in [
+        ("id",            ("codigo_de_cliente","codigo_cliente","id","folio","cuenta","numero_clave")),
+        ("saldo",         ("valor_saldo_deuda","saldo_insoluto","saldo","deuda")),
+        # Col BL = segmentacion_rep (especificación)
+        ("segmento",      ("segmentacion_rep","segmento_nombre","segmentacion","camino")),
+        # Col AE = rango_del_edad_consultora (especificación)
+        ("rango_edad",    ("rango_del_edad_consultora","rango_edad","rango edad consultora")),
+        ("edad",          ("edad_consultora","edad")),
+        ("zona",          ("zona",)),
+        ("estado_geo",    ("direccion_de_residencia_estado","estado")),
+        ("campana",       ("campana_numero","campana","campaña")),
+        # Col AI = aging_de_morosidad (especificación) → temporalidad directa
+        ("temporalidad",  ("temporalidad","tramo")),
+        ("aging",         ("aging_de_morosidad","dias_de_morosidad","dias_mora")),
+        # Col BQ = data_da_marcao_dmque → fecha de asignación por día
+        ("fecha_asig",    ("data_da_marcao_dmque","fecha_asignacion","fecha_remesa","fecha")),
+    ]:
+        for o in opts:
+            if o in cl: rc_[clave] = cl[o]; break
+    for f2 in ("saldo","edad","campana","aging"):
+        if f2 in rc_:
+            df[rc_[f2]] = pd.to_numeric(df[rc_[f2]], errors="coerce").fillna(0)
+    # Construir temporalidad desde aging si no existe
+    if "aging" in rc_ and "temporalidad" not in rc_:
+        df["_Temporalidad"] = df[rc_["aging"]].apply(pac_temporalidad)
+        rc_["temporalidad"] = "_Temporalidad"
+    # Parsear fecha de asignación
+    if "fecha_asig" in rc_:
+        df[rc_["fecha_asig"]] = pd.to_datetime(df[rc_["fecha_asig"]], errors="coerce")
+    return rc_
 
 def _build_pag_cols(df):
     cl = {c.lower().strip(): c for c in df.columns}
     pc_ = {}
     for clave, opts in [
-        ("id",    ("codigo_de_cliente","codigo_cliente","id","folio","cuenta")),
-        ("monto", ("monto_pagado","monto","pago","importe_pago","importe","bu (pago total)")),
-        ("fecha", ("fecha_pago","fecha","date")),
-        ("asesor",("asesor","agente","ejecutivo")),
+        ("id",         ("codigo_de_cliente","codigo_cliente","id","folio","cuenta")),
+        # Col B = Pago (especificación)
+        ("monto",      ("pago","monto_pagado","monto","importe_pago","importe","bu (pago total)")),
+        ("fecha",      ("fecha_pago","fecha","date")),
+        ("asesor",     ("asesor","agente","ejecutivo")),
+        # El archivo de pagos también trae dimensiones propias
+        ("segmento",   ("segmentacion_rep","segmento_nombre","segmentacion")),
+        ("rango_edad", ("rango_del_edad_consultora","rango_edad")),
+        ("edad",       ("edad_consultora","edad")),
+        ("aging",      ("aging_de_morosidad","dias_de_morosidad","dias_mora")),
+        ("temporalidad",("temporalidad","tramo")),
+        ("estatus",    ("estatus","status","tipo_cuenta")),
     ]:
         for o in opts:
             if o in cl: pc_[clave] = cl[o]; break
     if "monto" in pc_:
         df[pc_["monto"]] = pd.to_numeric(df[pc_["monto"]], errors="coerce").fillna(0)
+    if "aging" in pc_:
+        df[pc_["aging"]] = pd.to_numeric(df[pc_["aging"]], errors="coerce").fillna(0)
+    if "aging" in pc_ and "temporalidad" not in pc_:
+        df["_TempPag"] = df[pc_["aging"]].apply(pac_temporalidad)
+        pc_["temporalidad"] = "_TempPag"
     return pc_
 
 def _build_gest_cols(df):
     cl = {c.lower().strip(): c for c in df.columns}
     gc_ = {}
     for clave, opts in [
-        ("id",       ("codigo_de_cliente","codigo_cliente","id","folio","cuenta","numero_de_cliente")),
-        ("resultado",("resultado","resultado_llamada","resultado_gestion","status","contactado","medicion")),
-        ("hora",     ("hora_llamada","hora","hora_gestion")),
-        ("canal",    ("canal","tipo_gestion","tipo_llamada","medio","tipo")),
-        ("asesor",   ("asesor","agente","usuario","ejecutivo")),
-        ("fecha",    ("fecha","fecha_llamada","fecha_gestion")),
-        ("duracion", ("duracion_seg","duracion","segundos")),
+        # Col M = codigo_de_cliente
+        ("id",              ("codigo_de_cliente","codigo_cliente","id","folio","cuenta","numero_de_cliente")),
+        # Col AO = Contactabilidad (indicador directo de contacto — especificación)
+        ("contactabilidad", ("contactabilidad","contactable","contactacion")),
+        # Col AM = list_description (resultado de llamada)
+        ("resultado",       ("list_description","resultado","resultado_llamada","resultado_gestion","medicion","status")),
+        ("hora",            ("hora_llamada","hora","hora_gestion")),
+        ("canal",           ("canal","tipo_gestion","tipo_llamada","medio","tipo")),
+        ("asesor",          ("asesor","agente","usuario","ejecutivo")),
+        ("fecha",           ("fecha","fecha_llamada","fecha_gestion")),
+        ("duracion",        ("duracion_seg","duracion","segundos")),
     ]:
         for o in opts:
             if o in cl: gc_[clave] = cl[o]; break
-    if "resultado" in gc_:
-        no_c = ["no contacto","no_contacto","no contesto","no contestó","buzon","buzón","ocupado","no localizado","no encontrado"]
-        si_c = ["contacto","contactado","promesa","acuerdo","compromiso","localizado","si hablo","habló","hablo"]
+    # Usar Contactabilidad directamente si existe; si no, inferir por palabras clave del resultado
+    if "contactabilidad" in gc_:
+        cont_vals = df[gc_["contactabilidad"]].astype(str).str.lower().str.strip()
+        # Prioridad al estado más contactable por cliente
+        df["_contacto"] = cont_vals.isin(["contacto","contactado","contactable","si","sí","1","true","yes","humano","voz humana"])
+    elif "resultado" in gc_:
+        no_c = ["no contacto","no_contacto","no contesto","no contestó","buzon","buzón","ocupado","no localizado","no encontrado","no answer","voicemail","vm"]
+        si_c = ["contacto","contactado","promesa","acuerdo","compromiso","localizado","si hablo","habló","hablo","humano","voz humana"]
         df["_contacto"] = df[gc_["resultado"]].astype(str).str.lower().str.strip().apply(
             lambda x: (not any(p in x for p in no_c)) and any(p in x for p in si_c)
         )
@@ -2265,29 +2298,61 @@ with tab8:
         st.session_state.pag_tabla_df = None
     pt = st.session_state.pag_tabla_df
 
+    # ── Archivos adicionales (solo Tab 8) ──
+    for _k8, _v8 in [("ini_df",None),("sms_df",None),("pag_tabla_df",None)]:
+        if _k8 not in st.session_state: st.session_state[_k8] = _v8
+    pt = st.session_state.pag_tabla_df
+
     if rem is None and pag is None and gest is None:
         st.info("Sube los archivos en el **sidebar** (Cartera, Pagos, Gestión, Promesas) para ver los indicadores.")
     else:
-        with st.expander("📅 Tabla de pagos diarios por Temporalidad (opcional)", expanded=pt is None):
-            f_ptab = st.file_uploader("TABLA DE PAGOS (fecha + T1-T7) (.xlsx)", type=["xlsx"], key="ptab_uploader")
-            if f_ptab:
-                try:
-                    df_pt = pd.read_excel(f_ptab, engine="openpyxl")
-                    fec_c = next((c for c in df_pt.columns if "fecha" in str(c).lower()), None)
-                    t_cs  = [c for c in df_pt.columns if str(c).upper() in ["T1","T2","T3","T4","T5","T6","T7"]]
-                    tot_c = next((c for c in df_pt.columns if "total" in str(c).lower()), None)
-                    if fec_c and t_cs:
-                        df_pt[fec_c] = pd.to_datetime(df_pt[fec_c], errors="coerce")
-                        for tc in t_cs + ([tot_c] if tot_c else []):
-                            df_pt[tc] = pd.to_numeric(df_pt[tc], errors="coerce").fillna(0)
-                        st.session_state.pag_tabla_df = {"df": df_pt, "fecha": fec_c, "t_cols": t_cs, "total": tot_c}
-                        pt = st.session_state.pag_tabla_df
-                        st.success(f"✅ {len(df_pt):,} días cargados")
-                except Exception as e:
-                    st.error(f"Error: {e}")
+        with st.expander("📁 Archivos complementarios", expanded=False):
+            ca1, ca2, ca3 = st.columns(3)
+            with ca1:
+                st.markdown("**Inicios y Establecidas**")
+                f_ini = st.file_uploader("Cuentas Junio Inicios/Establecidas (.xlsx)", type=["xlsx"], key="ini_uploader")
+                if f_ini:
+                    try:
+                        f_ini.seek(0)
+                        df_ini = pd.read_excel(f_ini, engine="openpyxl")
+                        st.session_state.ini_df = df_ini
+                        st.success(f"✅ {len(df_ini):,} cuentas")
+                    except Exception as e: st.error(f"Error: {e}")
+            with ca2:
+                st.markdown("**SMS (Resultados SMS / Reminder)**")
+                f_sms = st.file_uploader("Archivo SMS (.xlsx)", type=["xlsx"], key="sms_uploader")
+                if f_sms:
+                    try:
+                        f_sms.seek(0)
+                        df_sms = pd.read_excel(f_sms, engine="openpyxl")
+                        st.session_state.sms_df = df_sms
+                        st.success(f"✅ {len(df_sms):,} registros SMS")
+                    except Exception as e: st.error(f"Error: {e}")
+            with ca3:
+                st.markdown("**Tabla de pagos diarios por Temporalidad**")
+                f_ptab = st.file_uploader("TABLA DE PAGOS (fecha + T1-T7) (.xlsx)", type=["xlsx"], key="ptab_uploader")
+                if f_ptab:
+                    try:
+                        f_ptab.seek(0)
+                        df_pt = pd.read_excel(f_ptab, engine="openpyxl")
+                        fec_c = next((c for c in df_pt.columns if "fecha" in str(c).lower()), None)
+                        t_cs  = [c for c in df_pt.columns if str(c).upper() in ["T1","T2","T3","T4","T5","T6","T7"]]
+                        tot_c = next((c for c in df_pt.columns if "total" in str(c).lower()), None)
+                        if fec_c and t_cs:
+                            df_pt[fec_c] = pd.to_datetime(df_pt[fec_c], errors="coerce")
+                            for tc in t_cs + ([tot_c] if tot_c else []):
+                                df_pt[tc] = pd.to_numeric(df_pt[tc], errors="coerce").fillna(0)
+                            st.session_state.pag_tabla_df = {"df": df_pt, "fecha": fec_c, "t_cols": t_cs, "total": tot_c}
+                            pt = st.session_state.pag_tabla_df
+                            st.success(f"✅ {len(df_pt):,} días cargados")
+                    except Exception as e: st.error(f"Error: {e}")
+
+    ini_df = st.session_state.get("ini_df")
+    sms_df = st.session_state.get("sms_df")
+    pt     = st.session_state.get("pag_tabla_df")
 
     st.markdown("---")
-    ind1, ind2, ind3 = st.tabs(["📋 Asignación", "💰 Recuperación", "📞 Gestión"])
+    ind1, ind2, ind3, ind4 = st.tabs(["📋 Asignación", "💰 Recuperación", "📞 Gestión", "⚙️ Operación"])
 
     # ─── IND1: ASIGNACIÓN ───
     with ind1:
@@ -2301,6 +2366,18 @@ with tab8:
             if saldo_r is not None:
                 a2.metric("Saldo total asignado", f"${saldo_r/1e6:.2f}M")
                 a3.metric("Saldo promedio por cuenta", f"${saldo_r/n_ctas:,.0f}")
+
+            # Asignación por Día (col BQ = data_da_marcao_dmque)
+            if "fecha_asig" in rc:
+                st.markdown("---")
+                st.markdown("**Asignación de cuentas por Día**")
+                rem["_FechaAsig"] = pd.to_datetime(rem[rc["fecha_asig"]], errors="coerce")
+                dia_g = rem.dropna(subset=["_FechaAsig"]).groupby("_FechaAsig").size().reset_index(name="Cuentas")
+                dia_g["_FechaStr"] = dia_g["_FechaAsig"].dt.strftime("%d/%m")
+                fig_dia = go.Figure(go.Bar(x=dia_g["_FechaStr"], y=dia_g["Cuentas"], marker_color=PAC_TEAL,
+                    text=dia_g["Cuentas"].map("{:,}".format), textposition="outside"))
+                apply_layout(fig_dia, height=280, title="Cuentas asignadas por día")
+                st.plotly_chart(fig_dia, use_container_width=True)
 
             st.markdown("---")
             # Por temporalidad
@@ -2359,9 +2436,16 @@ with tab8:
             if "edad" in rc:
                 st.markdown("---")
                 st.markdown("**Asignación por Edad**")
-                bins=[0,30,45,60,200]; lbls=["18–30","31–45","46–60","61+"]
-                rem["_EdadR"] = pd.cut(rem[rc["edad"]], bins=bins, labels=lbls, right=True, include_lowest=True).astype(str)
-                if "saldo" in rc:
+                # Usar rango_del_edad_consultora (col AE) si está disponible, si no construir desde edad numérica
+                if "rango_edad" in rc:
+                    rem["_EdadR"] = rem[rc["rango_edad"]].astype(str)
+                    lbls = sorted(rem["_EdadR"].dropna().unique().tolist())
+                elif "edad" in rc:
+                    bins=[0,30,45,60,200]; lbls=["18–30","31–45","46–60","61+"]
+                    rem["_EdadR"] = pd.cut(rem[rc["edad"]], bins=bins, labels=lbls, right=True, include_lowest=True).astype(str)
+                else:
+                    lbls = []
+                if "saldo" in rc and lbls:
                     ge = rem.groupby("_EdadR").agg(Cuentas=("_EdadR","count"), Saldo=(rc["saldo"],"sum")).reset_index()
                     ge = ge.set_index("_EdadR").reindex(lbls).fillna(0).reset_index()
                     ge.columns = ["Edad","Cuentas","Saldo"]
@@ -2400,17 +2484,36 @@ with tab8:
                 if n_ctas_pago and n_total_ctas:
                     r4.metric("% cuentas que recuperaron", f"{n_ctas_pago/n_total_ctas*100:.1f}%")
 
-                # Recuperación por temporalidad (desde pagos + cartera)
-                if rem2 is not None and "id" in pc and "id" in rc2 and "temporalidad" in rc2:
+                # Recuperación por temporalidad — usar col AI del archivo de pagos directamente
+                if "temporalidad" in pc:
+                    st.markdown("---")
+                    st.markdown("**Recuperación por Temporalidad**")
+                    rec_t = pag.groupby(pc["temporalidad"]).agg(
+                        Recuperado=(pc["monto"],"sum"),
+                        CuentasConPago=(pc["id"],"nunique") if "id" in pc else (pc["monto"],lambda s:(s>0).sum())
+                    ).reset_index()
+                    rec_t = rec_t.set_index(pc["temporalidad"]).reindex(orden_t).fillna(0).reset_index()
+                    rec_t.columns = ["Temporalidad","Recuperado","CuentasConPago"]
+                    c_rt1, c_rt2 = st.columns(2)
+                    with c_rt1:
+                        fig_rt = go.Figure(go.Bar(x=rec_t["Temporalidad"], y=rec_t["Recuperado"], marker_color=PAC_TEAL2,
+                            text=[f"${v/1e3:.0f}K" for v in rec_t["Recuperado"]], textposition="outside"))
+                        apply_layout(fig_rt, height=280, yaxis=dict(tickprefix="$", tickformat=",.0f"))
+                        st.plotly_chart(fig_rt, use_container_width=True)
+                    with c_rt2:
+                        fig_nrt = go.Figure(go.Bar(x=rec_t["Temporalidad"], y=rec_t["CuentasConPago"], marker_color=PAC_TEAL,
+                            text=rec_t["CuentasConPago"].map("{:,}".format), textposition="outside"))
+                        apply_layout(fig_nrt, height=280, title="Cuentas con pago")
+                        st.plotly_chart(fig_nrt, use_container_width=True)
+                elif rem2 is not None and "id" in pc and "id" in rc2 and "temporalidad" in rc2:
+                    # Fallback: cruzar pagos con cartera
                     st.markdown("---")
                     st.markdown("**Recuperación por Temporalidad**")
                     pag_temp = pag.groupby(pc["id"])[pc["monto"]].sum().reset_index()
                     pag_temp.columns = ["_id","Recuperado"]
                     cartera_t = rem2[[rc2["id"], rc2["temporalidad"]]].rename(columns={rc2["id"]:"_id", rc2["temporalidad"]:"Temporalidad"})
                     pt_merged = pag_temp.merge(cartera_t, on="_id", how="left")
-                    rec_t = pt_merged.groupby("Temporalidad")["Recuperado"].agg(
-                        Recuperado="sum", CuentasConPago=lambda s: (s>0).sum()
-                    ).reset_index() if False else pt_merged.groupby("Temporalidad").agg(
+                    rec_t = pt_merged.groupby("Temporalidad").agg(
                         Recuperado=("Recuperado","sum"), CuentasConPago=("Recuperado",lambda s:(s>0).sum())
                     ).reset_index()
                     rec_t = rec_t.set_index("Temporalidad").reindex(orden_t).fillna(0).reset_index()
@@ -2609,15 +2712,108 @@ with tab8:
                 apply_layout(fig_ghg, height=320, legend=dict(orientation="h", y=1.15))
                 st.plotly_chart(fig_ghg, use_container_width=True)
 
+    # ─── IND4: OPERACIÓN (dentro de Indicadores Cierre de Mes) ───
+    with ind4:
+        if gest is None and sms_df is None:
+            st.info("Sube el archivo **Gestión (Vici)** en el sidebar y/o el archivo **SMS** en Archivos complementarios.")
+        else:
+            st.markdown("### 📞 Indicadores de Operación")
+
+            # Métricas de llamadas desde archivo Vici (col M = total llamadas, col AM = list_description)
+            if gest is not None:
+                total_llamadas = len(gest)
+                n_ctas_op = gest[gc["id"]].nunique() if "id" in gc else None
+
+                # Intentos por cuenta
+                intentos_prom = total_llamadas / n_ctas_op if n_ctas_op else 0
+
+                o1, o2, o3 = st.columns(3)
+                o1.metric("Total llamadas (Vici)", f"{total_llamadas:,}")
+                if n_ctas_op:
+                    o2.metric("Cuentas gestionadas", f"{n_ctas_op:,}")
+                    o3.metric("Intentos promedio / cuenta", f"{intentos_prom:.1f}")
+
+                # Distribución de llamadas por resultado (col AM = list_description)
+                if "resultado" in gc:
+                    st.markdown("---")
+                    st.markdown("**Distribución por resultado de llamada**")
+                    res_op = gest[gc["resultado"]].value_counts().head(15).reset_index()
+                    res_op.columns = ["Resultado","Llamadas"]
+                    fig_res_op = go.Figure(go.Bar(
+                        x=res_op["Resultado"], y=res_op["Llamadas"], marker_color=PAC_TEAL,
+                        text=res_op["Llamadas"].map("{:,}".format), textposition="outside"))
+                    apply_layout(fig_res_op, height=300)
+                    st.plotly_chart(fig_res_op, use_container_width=True)
+
+                # Llamadas por hora del día
+                if "hora" in gc:
+                    st.markdown("---")
+                    st.markdown("**Llamadas por hora del día**")
+                    gest_op = gest.copy()
+                    try:
+                        gest_op["_hora_op"] = pd.to_datetime(gest_op[gc["hora"]], format="%H:%M:%S", errors="coerce").dt.hour
+                        nulls_op = gest_op["_hora_op"].isna()
+                        gest_op.loc[nulls_op,"_hora_op"] = pd.to_numeric(gest_op.loc[nulls_op, gc["hora"]], errors="coerce")
+                    except Exception:
+                        gest_op["_hora_op"] = pd.to_numeric(gest_op[gc["hora"]], errors="coerce")
+                    gest_op = gest_op[gest_op["_hora_op"].notna() & (gest_op["_hora_op"] >= 0)]
+                    gest_op["_hora_op"] = gest_op["_hora_op"].astype(int)
+                    hora_cnt = gest_op.groupby("_hora_op").size().reset_index(name="Llamadas")
+                    fig_hora = go.Figure(go.Bar(
+                        x=hora_cnt["_hora_op"], y=hora_cnt["Llamadas"], marker_color=PAC_TEAL2,
+                        text=hora_cnt["Llamadas"].map("{:,}".format), textposition="outside"))
+                    apply_layout(fig_hora, height=280, xaxis=dict(title="Hora"))
+                    st.plotly_chart(fig_hora, use_container_width=True)
+
+            # SMS desde archivo complementario (col J = Descripcion)
+            if sms_df is not None:
+                st.markdown("---")
+                st.markdown("### 📱 Indicadores de SMS")
+                total_sms = len(sms_df)
+                cl_sms = {c.lower().strip(): c for c in sms_df.columns}
+                # Col J = Descripcion (resultado / estado del SMS)
+                desc_col = None
+                for opt in ("descripcion","descripción","description","resultado","status","estado"):
+                    if opt in cl_sms:
+                        desc_col = cl_sms[opt]; break
+
+                s1, s2 = st.columns(2)
+                s1.metric("Total SMS enviados", f"{total_sms:,}")
+
+                if desc_col:
+                    sms_res = sms_df[desc_col].value_counts().reset_index()
+                    sms_res.columns = ["Estado","Cantidad"]
+                    # Detectar exitosos/no exitosos
+                    exitosos_kw = ["entregado","delivered","enviado","exitoso","success","ok"]
+                    sms_df["_sms_ok"] = sms_df[desc_col].astype(str).str.lower().str.strip().apply(
+                        lambda x: any(k in x for k in exitosos_kw)
+                    )
+                    n_exit = int(sms_df["_sms_ok"].sum())
+                    pct_exit = n_exit / total_sms * 100 if total_sms else 0
+                    s2.metric("SMS exitosos", f"{n_exit:,} ({pct_exit:.1f}%)")
+
+                    c_s1, c_s2 = st.columns([1,2])
+                    with c_s1:
+                        fig_sms = go.Figure(go.Pie(
+                            labels=sms_res["Estado"], values=sms_res["Cantidad"], hole=0.55,
+                            marker_colors=[PAC_TEAL,PAC_AMBER,PAC_CORAL,PAC_RED,PAC_NAVY,PAC_TEAL2]))
+                        apply_layout(fig_sms, height=280)
+                        st.plotly_chart(fig_sms, use_container_width=True)
+                    with c_s2:
+                        st.dataframe(sms_res.style.format({"Cantidad":"{:,}"}), use_container_width=True, hide_index=True)
+                else:
+                    s2.metric("SMS exitosos", "—")
+                    st.caption("No se detectó columna de descripción/resultado en el archivo SMS.")
+
 # ══════════════════════════════════════════════
 # TAB 9 — OPERACIÓN
 # ══════════════════════════════════════════════
 with tab9:
     st.markdown('<div class="sec">⚙️ Operación — Junio 2026</div>', unsafe_allow_html=True)
     gest9 = df_gest_real
-    gc9   = _build_gest_cols(df_gest_real.copy()) if df_gest_real is not None else {}
+    gc9   = _build_gest_cols(gest9) if gest9 is not None else {}
     prom9 = df_prom_real
-    prc9  = _build_prom_cols(df_prom_real.copy()) if df_prom_real is not None else {}
+    prc9  = _build_prom_cols(prom9) if prom9 is not None else {}
 
     if gest9 is None and prom9 is None:
         st.info("Sube los archivos desde la pestaña **'8 · Indicadores Cierre de Mes'** para ver la operación.")
